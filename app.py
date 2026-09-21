@@ -30,6 +30,10 @@ VALID_COMPLAINT_STATUSES = {"received", "investigating", "action", "completed", 
 VALID_LABELING_STATUSES = {"preparing", "review", "current", "obsolete"}
 LABELING_STATUS_LABELS = {"preparing": "시안 준비 중", "review": "검토 중", "current": "최신본", "obsolete": "이전본"}
 LABELING_TYPES = [("vial", "바이알"), ("blister", "블리스터 포장 완제품"), ("ifu", "IFU"), ("quick_guide", "퀵가이드"), ("product_box", "제품박스")]
+LABELING_PRODUCTS = {
+    "medical": {"name": "MedParkAllo", "korean": "메디컬", "badge": "MEDICAL"},
+    "dental": {"name": "MedParkAlloD", "korean": "덴탈", "badge": "DENTAL"},
+}
 LABELING_ICONS = {"vial": "▥", "blister": "▦", "ifu": "IFU", "quick_guide": "QG", "product_box": "□"}
 COMPLAINT_STATUS_LABELS = {
     "received": "접수", "investigating": "조사 중", "action": "조치 중",
@@ -195,7 +199,10 @@ class LabelingAsset(TimestampMixin, db.Model):
     standard = db.Column(db.String(10), nullable=False, default="GMP")
     item_type = db.Column(db.String(40), nullable=False, index=True)
     item_name = db.Column(db.String(100), nullable=False)
+    product_code = db.Column(db.String(30), nullable=False, index=True)
     product_name = db.Column(db.String(200), nullable=False, default="")
+    market_scope = db.Column(db.String(100), nullable=False, default="국내/해외향 공통")
+    valid_until_note = db.Column(db.String(150), nullable=False, default="추후 개정 시")
     control_no = db.Column(db.String(100), nullable=False, default="")
     revision = db.Column(db.String(50), nullable=False, default="-")
     effective_date = db.Column(db.Date)
@@ -492,10 +499,14 @@ def register_routes(app):
     @app.get("/labeling/GMP")
     @login_required
     def labeling_master():
+        product_code = request.args.get("product", "medical")
+        if product_code not in LABELING_PRODUCTS:
+            product_code = "medical"
         assets = []
         for slug, name in LABELING_TYPES:
             row = db.session.scalar(db.select(LabelingAsset).where(
-                LabelingAsset.standard == "GMP", LabelingAsset.item_type == slug
+                LabelingAsset.standard == "GMP", LabelingAsset.product_code == product_code,
+                LabelingAsset.item_type == slug
             ).order_by(
                 case((LabelingAsset.status == "current", 0), (LabelingAsset.status == "review", 1), else_=2),
                 LabelingAsset.updated_at.desc()
@@ -504,6 +515,7 @@ def register_routes(app):
                 assets.append(row)
         ready_count = sum(1 for row in assets if row.status == "current")
         return render_template("labeling_master.html", assets=assets, ready_count=ready_count,
+            product_code=product_code, product=LABELING_PRODUCTS[product_code],
             status_labels=LABELING_STATUS_LABELS, icons=LABELING_ICONS)
 
     @app.route("/labeling/<uuid:asset_id>", methods=["GET", "POST"])
@@ -525,18 +537,21 @@ def register_routes(app):
                 return redirect(url_for("labeling_detail", asset_id=asset.id))
             is_placeholder = asset.status == "preparing" and not asset.control_no
             target = asset if is_placeholder else LabelingAsset(
-                standard=asset.standard, item_type=asset.item_type, item_name=asset.item_name,
-                created_by=user.id
+                standard=asset.standard, product_code=asset.product_code,
+                item_type=asset.item_type, item_name=asset.item_name, created_by=user.id
             )
             if status_value == "current":
                 previous = db.session.scalars(db.select(LabelingAsset).where(
-                    LabelingAsset.standard == asset.standard, LabelingAsset.item_type == asset.item_type,
-                    LabelingAsset.status == "current", LabelingAsset.id != target.id
+                    LabelingAsset.standard == asset.standard, LabelingAsset.product_code == asset.product_code,
+                    LabelingAsset.item_type == asset.item_type, LabelingAsset.status == "current",
+                    LabelingAsset.id != target.id
                 )).all()
                 for row in previous:
                     row.status = "obsolete"
                     row.updated_by = user.id
-            target.product_name = request.form.get("product_name", "").strip()
+            target.product_name = LABELING_PRODUCTS[asset.product_code]["name"]
+            target.market_scope = request.form.get("market_scope", "국내/해외향 공통").strip()
+            target.valid_until_note = request.form.get("valid_until_note", "추후 개정 시").strip()
             target.control_no = request.form["control_no"].strip()
             target.revision = request.form["revision"].strip()
             target.effective_date = date.fromisoformat(request.form["effective_date"]) if request.form.get("effective_date") else None
@@ -557,9 +572,11 @@ def register_routes(app):
             flash("마스터샘플이 저장되었습니다.", "success")
             return redirect(url_for("labeling_detail", asset_id=target.id))
         history = db.session.scalars(db.select(LabelingAsset).where(
-            LabelingAsset.standard == asset.standard, LabelingAsset.item_type == asset.item_type
+            LabelingAsset.standard == asset.standard, LabelingAsset.product_code == asset.product_code,
+            LabelingAsset.item_type == asset.item_type
         ).order_by(LabelingAsset.created_at.desc())).all()
         return render_template("labeling_detail.html", asset=asset, history=history,
+            product=LABELING_PRODUCTS[asset.product_code],
             status_labels=LABELING_STATUS_LABELS, icons=LABELING_ICONS)
 
     @app.get("/labeling/<uuid:asset_id>/file")
