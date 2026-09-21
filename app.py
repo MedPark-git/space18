@@ -26,6 +26,12 @@ csrf = CSRFProtect()
 login_attempts = defaultdict(deque)
 VALID_ROLES = {"admin", "editor", "viewer"}
 VALID_DOCUMENT_STATUSES = {"draft", "active", "confirmed", "obsolete"}
+VALID_COMPLAINT_STATUSES = {"received", "investigating", "action", "completed", "overdue"}
+COMPLAINT_STATUS_LABELS = {
+    "received": "접수", "investigating": "조사 중", "action": "조치 중",
+    "completed": "처리 완료", "overdue": "기한 초과",
+}
+KOREA_PROVINCES = ["서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종", "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"]
 WORK_SECTIONS = {
     "GMP": [("records", "문서 및 기록관리"), ("external", "외부출처문서"), ("purchasing", "구매관리"), ("monitoring", "모니터링 및 측정"), ("analysis", "데이터 분석"), ("validation", "유효성 관리"), ("complaints", "고객불만"), ("labeling", "라벨링·패키지 이력관리")],
     "GTP": [("records", "문서 및 기록관리"), ("monitoring", "모니터링 및 측정"), ("validation", "유효성 관리"), ("complaints", "고객불만"), ("labeling", "라벨링·패키지 이력관리")],
@@ -146,6 +152,38 @@ class Document(TimestampMixin, db.Model):
     updated_by = db.Column(db.Uuid, db.ForeignKey("user.id"), nullable=False)
     confirmed_at = db.Column(db.DateTime(timezone=True))
     __table_args__ = (db.UniqueConstraint("category", "section", "document_no", "revision", name="uq_document_revision"),)
+
+
+class Complaint(TimestampMixin, db.Model):
+    id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
+    complaint_no = db.Column(db.String(40), nullable=False, unique=True)
+    standard = db.Column(db.String(10), nullable=False, default="GMP")
+    market = db.Column(db.String(20), nullable=False, index=True)
+    country = db.Column(db.String(100), nullable=False)
+    province = db.Column(db.String(50), index=True)
+    receipt_date = db.Column(db.Date, nullable=False, index=True)
+    customer_name = db.Column(db.String(200), nullable=False)
+    product_name = db.Column(db.String(200), nullable=False)
+    model_name = db.Column(db.String(100), nullable=False)
+    lot_no = db.Column(db.String(100), nullable=False)
+    volume = db.Column(db.String(50), nullable=False, default="")
+    shipment_qty = db.Column(db.Integer, nullable=False, default=0)
+    shipment_type = db.Column(db.String(100), nullable=False, default="")
+    complaint_qty = db.Column(db.Integer, nullable=False, default=0)
+    complaint_type = db.Column(db.String(150), nullable=False)
+    original_summary = db.Column(db.String(250), nullable=False, default="")
+    complaint_detail = db.Column(db.Text, nullable=False)
+    investigation = db.Column(db.Text, nullable=False, default="")
+    investigation_result = db.Column(db.Text, nullable=False, default="")
+    action_detail = db.Column(db.Text, nullable=False, default="")
+    capa_required = db.Column(db.Boolean, nullable=False, default=False)
+    handling_type = db.Column(db.String(100), nullable=False, default="")
+    handled_date = db.Column(db.Date)
+    status = db.Column(db.String(30), nullable=False, default="received", index=True)
+    closure_reason = db.Column(db.Text, nullable=False, default="")
+    owner = db.Column(db.String(100), nullable=False, default="")
+    created_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
+    updated_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
 
 
 class AuditLog(db.Model):
@@ -312,6 +350,8 @@ def register_routes(app):
         if standard not in WORK_SECTIONS:
             abort(404)
         section_counts = {slug: db.session.scalar(db.select(func.count(Document.id)).where(Document.category == standard, Document.section == slug)) for slug, _ in WORK_SECTIONS[standard]}
+        if standard == "GMP":
+            section_counts["complaints"] = db.session.scalar(db.select(func.count(Complaint.id)).where(Complaint.standard == "GMP"))
         return render_template("work_index.html", standard=standard, sections=WORK_SECTIONS[standard], section_counts=section_counts)
 
     @app.get("/api/session")
@@ -319,6 +359,111 @@ def register_routes(app):
     def api_session():
         user = current_user()
         return jsonify(user={"id": str(user.id), "login_id": user.login_id, "name": user.name, "role": user.role})
+
+    @app.route("/complaints/GMP", methods=["GET", "POST"])
+    @login_required
+    def complaints_dashboard():
+        user = current_user()
+        if request.method == "POST":
+            if user.role not in {"admin", "editor"}:
+                abort(403)
+            market = request.form.get("market", "domestic")
+            status_value = request.form.get("status", "received")
+            province = request.form.get("province", "").strip() or None
+            if market not in {"domestic", "overseas"} or status_value not in VALID_COMPLAINT_STATUSES:
+                abort(400)
+            if market == "domestic" and province not in KOREA_PROVINCES:
+                flash("국내 고객불만은 시·도를 선택하세요.", "error")
+                return redirect(url_for("complaints_dashboard", market=market))
+            year = date.fromisoformat(request.form["receipt_date"]).year
+            prefix = f"GMP-C-{year}-"
+            used = db.session.scalars(db.select(Complaint.complaint_no).where(Complaint.complaint_no.like(f"{prefix}%"))).all()
+            sequence = max([int(v.rsplit("-", 1)[-1]) for v in used if v.rsplit("-", 1)[-1].isdigit()] or [0]) + 1
+            complaint = Complaint(
+                complaint_no=f"{prefix}{sequence:03d}", standard="GMP", market=market,
+                country=request.form.get("country", "한국").strip(), province=province,
+                receipt_date=date.fromisoformat(request.form["receipt_date"]),
+                customer_name=request.form["customer_name"].strip(), product_name=request.form["product_name"].strip(),
+                model_name=request.form["model_name"].strip(), lot_no=request.form["lot_no"].strip(),
+                volume=request.form.get("volume", "").strip(), shipment_qty=max(0, int(request.form.get("shipment_qty") or 0)),
+                shipment_type=request.form.get("shipment_type", "").strip(), complaint_qty=max(0, int(request.form.get("complaint_qty") or 0)),
+                complaint_type=request.form["complaint_type"].strip(), complaint_detail=request.form["complaint_detail"].strip(),
+                investigation=request.form.get("investigation", "").strip(), investigation_result=request.form.get("investigation_result", "").strip(),
+                action_detail=request.form.get("action_detail", "").strip(), status=status_value,
+                owner=request.form.get("owner", "").strip(), created_by=user.id, updated_by=user.id,
+            )
+            db.session.add(complaint)
+            audit("complaint_created", "complaint", complaint.id, complaint.complaint_no)
+            db.session.commit()
+            flash("고객불만이 등록되었습니다.", "success")
+            return redirect(url_for("complaint_detail", complaint_id=complaint.id))
+
+        market = request.args.get("market", "domestic")
+        if market not in {"domestic", "overseas"}:
+            market = "domestic"
+        selected_province = request.args.get("province", "").strip()
+        status_value = request.args.get("status", "").strip()
+        keyword = request.args.get("q", "").strip()
+        query = db.select(Complaint).where(Complaint.standard == "GMP", Complaint.market == market)
+        all_market_rows = db.session.scalars(query).all()
+        province_counts = {p: sum(1 for row in all_market_rows if row.province == p) for p in KOREA_PROVINCES}
+        if selected_province:
+            query = query.where(Complaint.province == selected_province)
+        if status_value in VALID_COMPLAINT_STATUSES:
+            query = query.where(Complaint.status == status_value)
+        if keyword:
+            like = f"%{keyword}%"
+            query = query.where(db.or_(Complaint.product_name.ilike(like), Complaint.model_name.ilike(like), Complaint.lot_no.ilike(like), Complaint.customer_name.ilike(like)))
+        rows = db.session.scalars(query.order_by(Complaint.receipt_date.desc(), Complaint.created_at.desc())).all()
+        today = date.today()
+        summary = {
+            "total": len(all_market_rows),
+            "completed": sum(1 for r in all_market_rows if r.status == "completed"),
+            "open": sum(1 for r in all_market_rows if r.status not in {"completed", "overdue"}),
+            "overdue": sum(1 for r in all_market_rows if r.status == "overdue"),
+            "quantity": sum(r.complaint_qty for r in all_market_rows),
+        }
+        return render_template("complaints.html", rows=rows, market=market, selected_province=selected_province,
+            province_counts=province_counts, provinces=KOREA_PROVINCES, summary=summary, q=keyword,
+            status=status_value, status_labels=COMPLAINT_STATUS_LABELS, today=today)
+
+    @app.route("/complaints/<uuid:complaint_id>", methods=["GET", "POST"])
+    @login_required
+    def complaint_detail(complaint_id):
+        complaint = db.get_or_404(Complaint, complaint_id)
+        user = current_user()
+        if request.method == "POST":
+            if user.role not in {"admin", "editor"}:
+                abort(403)
+            status_value = request.form.get("status", "")
+            if status_value not in VALID_COMPLAINT_STATUSES:
+                abort(400)
+            complaint.receipt_date = date.fromisoformat(request.form["receipt_date"])
+            complaint.province = request.form.get("province", "").strip() or None
+            complaint.customer_name = request.form["customer_name"].strip()
+            complaint.owner = request.form.get("owner", "").strip()
+            complaint.product_name = request.form["product_name"].strip()
+            complaint.model_name = request.form["model_name"].strip()
+            complaint.lot_no = request.form["lot_no"].strip()
+            complaint.volume = request.form.get("volume", "").strip()
+            complaint.shipment_qty = max(0, int(request.form.get("shipment_qty") or 0))
+            complaint.complaint_qty = max(0, int(request.form.get("complaint_qty") or 0))
+            complaint.complaint_type = request.form["complaint_type"].strip()
+            complaint.complaint_detail = request.form["complaint_detail"].strip()
+            complaint.investigation = request.form.get("investigation", "").strip()
+            complaint.investigation_result = request.form.get("investigation_result", "").strip()
+            complaint.action_detail = request.form.get("action_detail", "").strip()
+            complaint.handling_type = request.form.get("handling_type", "").strip()
+            complaint.handled_date = date.fromisoformat(request.form["handled_date"]) if request.form.get("handled_date") else None
+            complaint.status = status_value
+            complaint.capa_required = request.form.get("capa_required") == "on"
+            complaint.closure_reason = request.form.get("closure_reason", "").strip()
+            complaint.updated_by = user.id
+            audit("complaint_updated", "complaint", complaint.id, complaint.complaint_no)
+            db.session.commit()
+            flash("고객불만 이력이 수정되었습니다.", "success")
+            return redirect(url_for("complaint_detail", complaint_id=complaint.id))
+        return render_template("complaint_detail.html", complaint=complaint, status_labels=COMPLAINT_STATUS_LABELS)
 
     @app.route("/documents/<category>", defaults={"section": "records"}, methods=["GET", "POST"])
     @app.route("/documents/<category>/<section>", methods=["GET", "POST"])
@@ -331,6 +476,8 @@ def register_routes(app):
         if section not in section_map:
             abort(404)
         section_name = section_map[section]
+        if category == "GMP" and section == "complaints":
+            return redirect(url_for("complaints_dashboard"))
         user = current_user()
         if request.method == "POST":
             if user.role not in {"admin", "editor"}:
