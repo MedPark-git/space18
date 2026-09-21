@@ -1,0 +1,3 @@
+Database migrations are managed with Flask-Migrate/Alembic.
+Run `flask --app app db upgrade` during deployment.
+
