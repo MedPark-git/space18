@@ -575,8 +575,14 @@ def register_routes(app):
             LabelingAsset.standard == asset.standard, LabelingAsset.product_code == asset.product_code,
             LabelingAsset.item_type == asset.item_type
         ).order_by(LabelingAsset.created_at.desc())).all()
+        image_url = None
+        is_pdf = bool(asset.stored_name and asset.file_name and asset.file_name.lower().endswith(".pdf"))
+        if asset.stored_name and asset.file_name and asset.file_name.lower().endswith((".jpg", ".jpeg", ".png")):
+            image_url = url_for("labeling_file", asset_id=asset.id)
+        elif not asset.stored_name and asset.item_type in {"vial", "blister"}:
+            image_url = url_for("static", filename=f"{asset.item_type}-{asset.product_code}.svg")
         return render_template("labeling_detail.html", asset=asset, history=history,
-            product=LABELING_PRODUCTS[asset.product_code],
+            product=LABELING_PRODUCTS[asset.product_code], image_url=image_url, is_pdf=is_pdf,
             status_labels=LABELING_STATUS_LABELS, icons=LABELING_ICONS)
 
     @app.get("/labeling/<uuid:asset_id>/file")
