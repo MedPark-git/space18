@@ -1,0 +1,2 @@
+{% extends 'base.html' %}{% block content %}<section class="card login"><h2>로그인</h2><p>서울 3-site 기술부(품질) 업무 시스템</p><form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>아이디<input name="login_id" autocomplete="username" required autofocus></label><label>비밀번호<input type="password" name="password" autocomplete="current-password" required></label><button>로그인</button></form></section>{% endblock %}
+
