@@ -402,6 +402,8 @@ def register_routes(app):
         if market not in {"domestic", "overseas"}:
             market = "domestic"
         selected_province = request.args.get("province", "").strip()
+        if selected_province and selected_province not in KOREA_PROVINCES:
+            selected_province = ""
         status_value = request.args.get("status", "").strip()
         keyword = request.args.get("q", "").strip()
         query = db.select(Complaint).where(Complaint.standard == "GMP", Complaint.market == market)
