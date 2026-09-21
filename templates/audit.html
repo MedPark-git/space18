@@ -1,0 +1,2 @@
+{% extends 'base.html' %}{% block content %}<header><h2>감사 로그</h2><p>최근 500건</p></header><section class="card"><div class="table-wrap"><table><tr><th>시간</th><th>사용자</th><th>작업</th><th>대상</th><th>내용</th><th>IP</th></tr>{% for log in logs %}<tr><td>{{ to_kst(log.created_at) }}</td><td>{{ log.actor_login_id }}</td><td>{{ log.action }}</td><td>{{ log.target_type }}</td><td>{{ log.detail }}</td><td>{{ log.ip_address }}</td></tr>{% endfor %}</table></div></section>{% endblock %}
+
