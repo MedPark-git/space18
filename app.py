@@ -214,6 +214,22 @@ class LabelingAsset(TimestampMixin, db.Model):
     updated_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
 
 
+class ScheduleTask(TimestampMixin, db.Model):
+    id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
+    standard = db.Column(db.String(10), nullable=False, index=True)
+    section = db.Column(db.String(50), nullable=False)
+    title = db.Column(db.String(250), nullable=False)
+    due_date = db.Column(db.Date, nullable=False, index=True)
+    date_precision = db.Column(db.String(20), nullable=False, default="day")
+    reminder_days = db.Column(db.Integer, nullable=False, default=60)
+    owner = db.Column(db.String(100), nullable=False, default="")
+    status = db.Column(db.String(30), nullable=False, default="scheduled", index=True)
+    memo = db.Column(db.Text, nullable=False, default="")
+    completed_at = db.Column(db.DateTime(timezone=True))
+    created_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
+    updated_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
+
+
 class AuditLog(db.Model):
     id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
     actor_id = db.Column(db.Uuid, db.ForeignKey("user.id"))
@@ -303,6 +319,27 @@ def safe_next(value):
     return value if value and value.startswith("/") and not value.startswith("//") else url_for("dashboard")
 
 
+def schedule_view(task, today=None):
+    today = today or date.today()
+    days = (task.due_date - today).days
+    if task.status == "completed":
+        level, dday = "completed", "완료"
+    elif days < 0:
+        level, dday = "overdue", f"D+{abs(days)}"
+    elif days <= 30:
+        level, dday = "urgent", f"D-{days}"
+    elif days <= task.reminder_days:
+        level, dday = "alert", f"D-{days}"
+    else:
+        level, dday = "upcoming", f"D-{days}"
+    return {
+        "task": task, "level": level, "dday": dday,
+        "date_main": task.due_date.strftime("%Y.%m") if task.date_precision == "month" else task.due_date.strftime("%m.%d"),
+        "date_sub": "월 예정" if task.date_precision == "month" else task.due_date.strftime("%Y년"),
+        "section_name": dict(WORK_SECTIONS.get(task.standard, [])).get(task.section, task.section),
+    }
+
+
 def register_routes(app):
     @app.before_request
     def session_policy():
@@ -369,7 +406,13 @@ def register_routes(app):
     def dashboard():
         counts = {category: db.session.scalar(db.select(func.count(Document.id)).where(Document.category == category)) for category in ("GMP", "GTP")}
         recent = db.session.scalars(db.select(Document).order_by(Document.updated_at.desc()).limit(8)).all()
-        return render_template("dashboard.html", counts=counts, recent=recent)
+        schedule_views = {}
+        for standard in ("GMP", "GTP"):
+            tasks = db.session.scalars(db.select(ScheduleTask).where(
+                ScheduleTask.standard == standard, ScheduleTask.status != "completed"
+            ).order_by(ScheduleTask.due_date).limit(6)).all()
+            schedule_views[standard] = [schedule_view(task) for task in tasks]
+        return render_template("dashboard.html", counts=counts, recent=recent, schedule_views=schedule_views)
 
     @app.get("/work/<standard>")
     @login_required
@@ -388,6 +431,55 @@ def register_routes(app):
     def api_session():
         user = current_user()
         return jsonify(user={"id": str(user.id), "login_id": user.login_id, "name": user.name, "role": user.role})
+
+    @app.route("/schedule", methods=["GET", "POST"])
+    @login_required
+    def schedule():
+        user = current_user()
+        standard = request.args.get("standard", "GMP").upper()
+        if standard not in WORK_SECTIONS:
+            standard = "GMP"
+        if request.method == "POST":
+            if user.role not in {"admin", "editor"}:
+                abort(403)
+            task_standard = request.form.get("standard", "").upper()
+            section = request.form.get("section", "")
+            if task_standard not in WORK_SECTIONS or section not in dict(WORK_SECTIONS[task_standard]):
+                abort(400)
+            precision = request.form.get("date_precision", "day")
+            if precision not in {"day", "month"}:
+                abort(400)
+            task = ScheduleTask(
+                standard=task_standard, section=section, title=request.form["title"].strip(),
+                due_date=date.fromisoformat(request.form["due_date"]), date_precision=precision,
+                reminder_days=int(request.form.get("reminder_days") or 60),
+                owner=request.form.get("owner", "").strip(), memo=request.form.get("memo", "").strip(),
+                created_by=user.id, updated_by=user.id,
+            )
+            db.session.add(task)
+            audit("schedule_created", "schedule_task", task.id, f"{task.standard} {task.title}")
+            db.session.commit()
+            flash("예정업무가 등록되었습니다.", "success")
+            return redirect(url_for("schedule", standard=task.standard))
+        tasks = db.session.scalars(db.select(ScheduleTask).where(
+            ScheduleTask.standard == standard
+        ).order_by(
+            case((ScheduleTask.status == "completed", 1), else_=0), ScheduleTask.due_date
+        )).all()
+        return render_template("schedule.html", standard=standard, sections=WORK_SECTIONS[standard],
+            views=[schedule_view(task) for task in tasks])
+
+    @app.post("/schedule/<uuid:task_id>/complete")
+    @roles_required("admin", "editor")
+    def complete_schedule(task_id):
+        task = db.get_or_404(ScheduleTask, task_id)
+        task.status = "completed"
+        task.completed_at = utcnow()
+        task.updated_by = current_user().id
+        audit("schedule_completed", "schedule_task", task.id, task.title)
+        db.session.commit()
+        flash("업무를 완료 처리했습니다.", "success")
+        return redirect(url_for("schedule", standard=task.standard))
 
     @app.route("/complaints/GMP", methods=["GET", "POST"])
     @login_required
