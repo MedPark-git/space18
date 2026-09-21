@@ -27,6 +27,10 @@ login_attempts = defaultdict(deque)
 VALID_ROLES = {"admin", "editor", "viewer"}
 VALID_DOCUMENT_STATUSES = {"draft", "active", "confirmed", "obsolete"}
 VALID_COMPLAINT_STATUSES = {"received", "investigating", "action", "completed", "overdue"}
+VALID_LABELING_STATUSES = {"preparing", "review", "current", "obsolete"}
+LABELING_STATUS_LABELS = {"preparing": "시안 준비 중", "review": "검토 중", "current": "최신본", "obsolete": "이전본"}
+LABELING_TYPES = [("vial", "바이알"), ("blister", "블리스터 포장 완제품"), ("ifu", "IFU"), ("quick_guide", "퀵가이드"), ("product_box", "제품박스")]
+LABELING_ICONS = {"vial": "▥", "blister": "▦", "ifu": "IFU", "quick_guide": "QG", "product_box": "□"}
 COMPLAINT_STATUS_LABELS = {
     "received": "접수", "investigating": "조사 중", "action": "조치 중",
     "completed": "처리 완료", "overdue": "기한 초과",
@@ -182,6 +186,23 @@ class Complaint(TimestampMixin, db.Model):
     status = db.Column(db.String(30), nullable=False, default="received", index=True)
     closure_reason = db.Column(db.Text, nullable=False, default="")
     owner = db.Column(db.String(100), nullable=False, default="")
+    created_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
+    updated_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
+
+
+class LabelingAsset(TimestampMixin, db.Model):
+    id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
+    standard = db.Column(db.String(10), nullable=False, default="GMP")
+    item_type = db.Column(db.String(40), nullable=False, index=True)
+    item_name = db.Column(db.String(100), nullable=False)
+    product_name = db.Column(db.String(200), nullable=False, default="")
+    control_no = db.Column(db.String(100), nullable=False, default="")
+    revision = db.Column(db.String(50), nullable=False, default="-")
+    effective_date = db.Column(db.Date)
+    status = db.Column(db.String(30), nullable=False, default="preparing", index=True)
+    description = db.Column(db.Text, nullable=False, default="")
+    file_name = db.Column(db.String(255))
+    stored_name = db.Column(db.String(255))
     created_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
     updated_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
 
@@ -352,6 +373,7 @@ def register_routes(app):
         section_counts = {slug: db.session.scalar(db.select(func.count(Document.id)).where(Document.category == standard, Document.section == slug)) for slug, _ in WORK_SECTIONS[standard]}
         if standard == "GMP":
             section_counts["complaints"] = db.session.scalar(db.select(func.count(Complaint.id)).where(Complaint.standard == "GMP"))
+            section_counts["labeling"] = db.session.scalar(db.select(func.count(LabelingAsset.id)).where(LabelingAsset.standard == "GMP", LabelingAsset.status == "current"))
         return render_template("work_index.html", standard=standard, sections=WORK_SECTIONS[standard], section_counts=section_counts)
 
     @app.get("/api/session")
@@ -467,6 +489,88 @@ def register_routes(app):
             return redirect(url_for("complaint_detail", complaint_id=complaint.id))
         return render_template("complaint_detail.html", complaint=complaint, status_labels=COMPLAINT_STATUS_LABELS)
 
+    @app.get("/labeling/GMP")
+    @login_required
+    def labeling_master():
+        assets = []
+        for slug, name in LABELING_TYPES:
+            row = db.session.scalar(db.select(LabelingAsset).where(
+                LabelingAsset.standard == "GMP", LabelingAsset.item_type == slug
+            ).order_by(
+                db.case((LabelingAsset.status == "current", 0), (LabelingAsset.status == "review", 1), else_=2),
+                LabelingAsset.updated_at.desc()
+            ))
+            if row:
+                assets.append(row)
+        ready_count = sum(1 for row in assets if row.status == "current")
+        return render_template("labeling_master.html", assets=assets, ready_count=ready_count,
+            status_labels=LABELING_STATUS_LABELS, icons=LABELING_ICONS)
+
+    @app.route("/labeling/<uuid:asset_id>", methods=["GET", "POST"])
+    @login_required
+    def labeling_detail(asset_id):
+        asset = db.get_or_404(LabelingAsset, asset_id)
+        user = current_user()
+        if request.method == "POST":
+            if user.role not in {"admin", "editor"}:
+                abort(403)
+            status_value = request.form.get("status", "")
+            if status_value not in {"review", "current"}:
+                abort(400)
+            upload = request.files.get("file")
+            if upload and upload.filename and (
+                not allowed_file(upload.filename) or upload.filename.rsplit(".", 1)[1].lower() not in {"jpg", "jpeg", "png", "pdf"}
+            ):
+                flash("시안은 JPG, PNG 또는 PDF 파일만 등록할 수 있습니다.", "error")
+                return redirect(url_for("labeling_detail", asset_id=asset.id))
+            is_placeholder = asset.status == "preparing" and not asset.control_no
+            target = asset if is_placeholder else LabelingAsset(
+                standard=asset.standard, item_type=asset.item_type, item_name=asset.item_name,
+                created_by=user.id
+            )
+            if status_value == "current":
+                previous = db.session.scalars(db.select(LabelingAsset).where(
+                    LabelingAsset.standard == asset.standard, LabelingAsset.item_type == asset.item_type,
+                    LabelingAsset.status == "current", LabelingAsset.id != target.id
+                )).all()
+                for row in previous:
+                    row.status = "obsolete"
+                    row.updated_by = user.id
+            target.product_name = request.form.get("product_name", "").strip()
+            target.control_no = request.form["control_no"].strip()
+            target.revision = request.form["revision"].strip()
+            target.effective_date = date.fromisoformat(request.form["effective_date"]) if request.form.get("effective_date") else None
+            target.status = status_value
+            target.description = request.form.get("description", "").strip()
+            target.updated_by = user.id
+            if upload and upload.filename:
+                original = secure_filename(upload.filename)
+                stored = f"label_{uuid.uuid4().hex}_{original}"
+                upload.save(Path(app.config["UPLOAD_FOLDER"]) / stored)
+                target.file_name, target.stored_name = original, stored
+            elif not is_placeholder:
+                target.file_name, target.stored_name = asset.file_name, asset.stored_name
+            db.session.add(target)
+            audit("labeling_revision_created" if not is_placeholder else "labeling_master_registered",
+                "labeling_asset", target.id, f"{target.item_name} {target.control_no} Rev.{target.revision}")
+            db.session.commit()
+            flash("마스터샘플이 저장되었습니다.", "success")
+            return redirect(url_for("labeling_detail", asset_id=target.id))
+        history = db.session.scalars(db.select(LabelingAsset).where(
+            LabelingAsset.standard == asset.standard, LabelingAsset.item_type == asset.item_type
+        ).order_by(LabelingAsset.created_at.desc())).all()
+        return render_template("labeling_detail.html", asset=asset, history=history,
+            status_labels=LABELING_STATUS_LABELS, icons=LABELING_ICONS)
+
+    @app.get("/labeling/<uuid:asset_id>/file")
+    @login_required
+    def labeling_file(asset_id):
+        asset = db.get_or_404(LabelingAsset, asset_id)
+        if not asset.stored_name:
+            abort(404)
+        return send_from_directory(app.config["UPLOAD_FOLDER"], asset.stored_name,
+            as_attachment=request.args.get("download") == "1", download_name=asset.file_name)
+
     @app.route("/documents/<category>", defaults={"section": "records"}, methods=["GET", "POST"])
     @app.route("/documents/<category>/<section>", methods=["GET", "POST"])
     @login_required
@@ -480,6 +584,8 @@ def register_routes(app):
         section_name = section_map[section]
         if category == "GMP" and section == "complaints":
             return redirect(url_for("complaints_dashboard"))
+        if category == "GMP" and section == "labeling":
+            return redirect(url_for("labeling_master"))
         user = current_user()
         if request.method == "POST":
             if user.role not in {"admin", "editor"}:
