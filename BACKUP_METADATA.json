@@ -1,0 +1,9 @@
+ 
+{
+  "project": "seoul-3-site-quality",
+  "database": "postgresql",
+  "persistent_files": "/app/user_data",
+  "database_dump_committed": false,
+  "timezone_display": "Asia/Seoul",
+  "timezone_storage": "UTC"
+}
