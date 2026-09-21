@@ -1,0 +1,2 @@
+{% extends 'base.html' %}{% block content %}<section class="card narrow error-page"><strong>{{ code }}</strong><h2>{{ message }}</h2><a class="button" href="{{ url_for('dashboard') if current_user else url_for('login') }}">돌아가기</a></section>{% endblock %}
+
