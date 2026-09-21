@@ -10,7 +10,7 @@ from flask import Flask, abort, flash, jsonify, redirect, render_template, reque
 from flask_migrate import Migrate, upgrade
 from flask_sqlalchemy import SQLAlchemy
 from flask_wtf import CSRFProtect
-from sqlalchemy import event, func, inspect, text
+from sqlalchemy import case, event, func, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -497,7 +497,7 @@ def register_routes(app):
             row = db.session.scalar(db.select(LabelingAsset).where(
                 LabelingAsset.standard == "GMP", LabelingAsset.item_type == slug
             ).order_by(
-                db.case((LabelingAsset.status == "current", 0), (LabelingAsset.status == "review", 1), else_=2),
+                case((LabelingAsset.status == "current", 0), (LabelingAsset.status == "review", 1), else_=2),
                 LabelingAsset.updated_at.desc()
             ))
             if row:
