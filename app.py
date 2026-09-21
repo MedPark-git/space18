@@ -43,7 +43,9 @@ KOREA_PROVINCES = ["서울", "부산", "대구", "인천", "광주", "대전", "
 WORK_SECTIONS = {
     "GMP": [("records", "문서 및 기록관리"), ("external", "외부출처문서"), ("purchasing", "구매관리"), ("monitoring", "모니터링 및 측정"), ("analysis", "데이터 분석"), ("validation", "유효성 관리"), ("complaints", "고객불만"), ("labeling", "라벨링·패키지 이력관리")],
     "GTP": [("records", "문서 및 기록관리"), ("monitoring", "모니터링 및 측정"), ("validation", "유효성 관리"), ("complaints", "고객불만"), ("labeling", "라벨링·패키지 이력관리")],
+    "COMMON": [("records", "문서 및 기록관리"), ("external", "외부출처문서"), ("purchasing", "구매관리"), ("monitoring", "모니터링 및 측정"), ("analysis", "데이터 분석"), ("validation", "유효성 관리"), ("complaints", "고객불만"), ("labeling", "라벨링·패키지 이력관리")],
 }
+SCHEDULE_STANDARD_LABELS = {"GMP": "GMP", "GTP": "GTP", "COMMON": "GMP·GTP 공통"}
 
 
 def utcnow():
@@ -337,6 +339,7 @@ def schedule_view(task, today=None):
         "date_main": task.due_date.strftime("%Y.%m") if task.date_precision == "month" else task.due_date.strftime("%m.%d"),
         "date_sub": "월 예정" if task.date_precision == "month" else task.due_date.strftime("%Y년"),
         "section_name": dict(WORK_SECTIONS.get(task.standard, [])).get(task.section, task.section),
+        "standard_name": SCHEDULE_STANDARD_LABELS.get(task.standard, task.standard),
     }
 
 
@@ -407,7 +410,7 @@ def register_routes(app):
         counts = {category: db.session.scalar(db.select(func.count(Document.id)).where(Document.category == category)) for category in ("GMP", "GTP")}
         recent = db.session.scalars(db.select(Document).order_by(Document.updated_at.desc()).limit(8)).all()
         schedule_views = {}
-        for standard in ("GMP", "GTP"):
+        for standard in ("GMP", "GTP", "COMMON"):
             tasks = db.session.scalars(db.select(ScheduleTask).where(
                 ScheduleTask.standard == standard, ScheduleTask.status != "completed"
             ).order_by(ScheduleTask.due_date).limit(6)).all()
@@ -467,7 +470,36 @@ def register_routes(app):
             case((ScheduleTask.status == "completed", 1), else_=0), ScheduleTask.due_date
         )).all()
         return render_template("schedule.html", standard=standard, sections=WORK_SECTIONS[standard],
+            work_sections=WORK_SECTIONS, standard_labels=SCHEDULE_STANDARD_LABELS,
             views=[schedule_view(task) for task in tasks])
+
+    @app.route("/schedule/<uuid:task_id>/edit", methods=["GET", "POST"])
+    @roles_required("admin", "editor")
+    def edit_schedule(task_id):
+        task = db.get_or_404(ScheduleTask, task_id)
+        if request.method == "POST":
+            task_standard = request.form.get("standard", "").upper()
+            section = request.form.get("section", "")
+            precision = request.form.get("date_precision", "day")
+            if task_standard not in WORK_SECTIONS or section not in dict(WORK_SECTIONS[task_standard]):
+                abort(400)
+            if precision not in {"day", "month"}:
+                abort(400)
+            task.standard = task_standard
+            task.section = section
+            task.title = request.form["title"].strip()
+            task.due_date = date.fromisoformat(request.form["due_date"])
+            task.date_precision = precision
+            task.reminder_days = int(request.form.get("reminder_days") or 60)
+            task.owner = request.form.get("owner", "").strip()
+            task.memo = request.form.get("memo", "").strip()
+            task.updated_by = current_user().id
+            audit("schedule_updated", "schedule_task", task.id, f"{task.standard} {task.title}")
+            db.session.commit()
+            flash("예정업무가 수정되었습니다.", "success")
+            return redirect(url_for("schedule", standard=task.standard))
+        return render_template("schedule_edit.html", task=task, work_sections=WORK_SECTIONS,
+            standard_labels=SCHEDULE_STANDARD_LABELS)
 
     @app.post("/schedule/<uuid:task_id>/complete")
     @roles_required("admin", "editor")
