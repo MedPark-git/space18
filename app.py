@@ -26,6 +26,10 @@ csrf = CSRFProtect()
 login_attempts = defaultdict(deque)
 VALID_ROLES = {"admin", "editor", "viewer"}
 VALID_DOCUMENT_STATUSES = {"draft", "active", "confirmed", "obsolete"}
+WORK_SECTIONS = {
+    "GMP": [("records", "문서 및 기록관리"), ("external", "외부출처문서"), ("purchasing", "구매관리"), ("monitoring", "모니터링 및 측정"), ("analysis", "데이터 분석"), ("validation", "유효성 관리"), ("complaints", "고객불만"), ("labeling", "라벨링·패키지 이력관리")],
+    "GTP": [("records", "문서 및 기록관리"), ("monitoring", "모니터링 및 측정"), ("validation", "유효성 관리"), ("complaints", "고객불만"), ("labeling", "라벨링·패키지 이력관리")],
+}
 
 
 def utcnow():
@@ -129,6 +133,7 @@ class User(TimestampMixin, db.Model):
 class Document(TimestampMixin, db.Model):
     id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
     category = db.Column(db.String(10), nullable=False, index=True)
+    section = db.Column(db.String(50), nullable=False, default="records", index=True)
     document_no = db.Column(db.String(100), nullable=False)
     title = db.Column(db.String(250), nullable=False)
     revision = db.Column(db.String(50), nullable=False, default="0")
@@ -140,7 +145,7 @@ class Document(TimestampMixin, db.Model):
     created_by = db.Column(db.Uuid, db.ForeignKey("user.id"), nullable=False)
     updated_by = db.Column(db.Uuid, db.ForeignKey("user.id"), nullable=False)
     confirmed_at = db.Column(db.DateTime(timezone=True))
-    __table_args__ = (db.UniqueConstraint("category", "document_no", "revision", name="uq_document_revision"),)
+    __table_args__ = (db.UniqueConstraint("category", "section", "document_no", "revision", name="uq_document_revision"),)
 
 
 class AuditLog(db.Model):
@@ -300,18 +305,32 @@ def register_routes(app):
         recent = db.session.scalars(db.select(Document).order_by(Document.updated_at.desc()).limit(8)).all()
         return render_template("dashboard.html", counts=counts, recent=recent)
 
+    @app.get("/work/<standard>")
+    @login_required
+    def work_index(standard):
+        standard = standard.upper()
+        if standard not in WORK_SECTIONS:
+            abort(404)
+        section_counts = {slug: db.session.scalar(db.select(func.count(Document.id)).where(Document.category == standard, Document.section == slug)) for slug, _ in WORK_SECTIONS[standard]}
+        return render_template("work_index.html", standard=standard, sections=WORK_SECTIONS[standard], section_counts=section_counts)
+
     @app.get("/api/session")
     @login_required
     def api_session():
         user = current_user()
         return jsonify(user={"id": str(user.id), "login_id": user.login_id, "name": user.name, "role": user.role})
 
-    @app.route("/documents/<category>", methods=["GET", "POST"])
+    @app.route("/documents/<category>", defaults={"section": "records"}, methods=["GET", "POST"])
+    @app.route("/documents/<category>/<section>", methods=["GET", "POST"])
     @login_required
-    def documents(category):
+    def documents(category, section):
         category = category.upper()
         if category not in {"GMP", "GTP"}:
             abort(404)
+        section_map = dict(WORK_SECTIONS[category])
+        if section not in section_map:
+            abort(404)
+        section_name = section_map[section]
         user = current_user()
         if request.method == "POST":
             if user.role not in {"admin", "editor"}:
@@ -319,12 +338,12 @@ def register_routes(app):
             upload = request.files.get("file")
             if upload and upload.filename and not allowed_file(upload.filename):
                 flash("허용되지 않는 파일 형식입니다.", "error")
-                return redirect(url_for("documents", category=category))
+                return redirect(url_for("documents", category=category, section=section))
             status_value = request.form.get("status", "draft")
             if status_value not in VALID_DOCUMENT_STATUSES - {"confirmed"}:
                 abort(400)
             doc = Document(
-                category=category, document_no=request.form["document_no"].strip(), title=request.form["title"].strip(),
+                category=category, section=section, document_no=request.form["document_no"].strip(), title=request.form["title"].strip(),
                 revision=request.form.get("revision", "0").strip(), effective_date=date.fromisoformat(request.form["effective_date"]) if request.form.get("effective_date") else None,
                 status=status_value, description=request.form.get("description", "").strip(),
                 created_by=user.id, updated_by=user.id,
@@ -342,8 +361,8 @@ def register_routes(app):
             except SQLAlchemyError:
                 db.session.rollback()
                 flash("동일한 문서번호와 개정번호가 있거나 저장에 실패했습니다.", "error")
-            return redirect(url_for("documents", category=category))
-        query = db.select(Document).where(Document.category == category)
+            return redirect(url_for("documents", category=category, section=section))
+        query = db.select(Document).where(Document.category == category, Document.section == section)
         keyword = request.args.get("q", "").strip()
         status = request.args.get("status", "").strip()
         if keyword:
@@ -351,7 +370,7 @@ def register_routes(app):
         if status:
             query = query.where(Document.status == status)
         rows = db.session.scalars(query.order_by(Document.updated_at.desc())).all()
-        return render_template("documents.html", category=category, documents=rows, q=keyword, status=status)
+        return render_template("documents.html", category=category, section=section, section_name=section_name, sections=WORK_SECTIONS[category], documents=rows, q=keyword, status=status)
 
     @app.post("/documents/<uuid:document_id>/delete")
     @roles_required("admin", "editor")
@@ -369,7 +388,7 @@ def register_routes(app):
         db.session.delete(doc)
         db.session.commit()
         flash("문서가 삭제되었습니다.", "success")
-        return redirect(url_for("documents", category=category))
+        return redirect(url_for("documents", category=category, section=doc.section))
 
     @app.route("/documents/<uuid:document_id>/edit", methods=["GET", "POST"])
     @roles_required("admin", "editor")
@@ -390,7 +409,7 @@ def register_routes(app):
             audit("document_updated", "document", doc.id, f"{doc.category} {doc.document_no}")
             try:
                 db.session.commit(); flash("문서가 수정되었습니다.", "success")
-                return redirect(url_for("documents", category=doc.category))
+                return redirect(url_for("documents", category=doc.category, section=doc.section))
             except SQLAlchemyError:
                 db.session.rollback(); flash("중복 문서번호 또는 저장 오류입니다.", "error")
         return render_template("document_edit.html", document=doc)
@@ -411,7 +430,7 @@ def register_routes(app):
         audit("document_confirmed", "document", doc.id, f"{doc.category} {doc.document_no}")
         db.session.commit()
         flash("문서가 확정되었습니다.", "success")
-        return redirect(url_for("documents", category=doc.category))
+        return redirect(url_for("documents", category=doc.category, section=doc.section))
 
     @app.route("/profile/password", methods=["GET", "POST"])
     @login_required
@@ -532,7 +551,7 @@ def register_routes(app):
 def register_context(app):
     @app.context_processor
     def inject_globals():
-        return {"current_user": current_user(), "to_kst": lambda dt: dt.astimezone(KST).strftime("%Y-%m-%d %H:%M") if dt else "-", "site_name": "서울 3-site 기술부(품질)"}
+        return {"current_user": current_user(), "to_kst": lambda dt: dt.astimezone(KST).strftime("%Y-%m-%d %H:%M") if dt else "-", "site_name": "서울 3-site 기술부(품질)", "section_label": lambda category, slug: dict(WORK_SECTIONS.get(category, [])).get(slug, slug)}
 
 
 def register_errors(app):
