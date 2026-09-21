@@ -62,3 +62,20 @@ def test_forged_role_and_status_are_rejected(app):
     assert client.post("/documents/GMP", data={
         "document_no":"G-2", "title":"비정상 상태", "revision":"0", "status":"confirmed"
     }).status_code == 400
+
+def test_gmp_and_gtp_work_indexes_are_separate(app):
+    client = app.test_client(); login(client)
+    gmp = client.get("/work/GMP").get_data(as_text=True)
+    gtp = client.get("/work/GTP").get_data(as_text=True)
+    assert "외부출처문서" in gmp and "구매관리" in gmp and "데이터 분석" in gmp
+    assert "외부출처문서" not in gtp and "구매관리" not in gtp and "데이터 분석" not in gtp
+    assert "문서 및 기록관리" in gmp and "문서 및 기록관리" in gtp
+
+def test_same_document_number_can_be_used_in_different_sections(app):
+    client = app.test_client(); login(client)
+    payload = {"document_no":"SHARED-1", "title":"구분 시험", "revision":"0", "status":"draft"}
+    assert client.post("/documents/GMP/external", data=payload).status_code == 302
+    assert client.post("/documents/GMP/purchasing", data=payload).status_code == 302
+    assert "구분 시험" in client.get("/documents/GMP/external").get_data(as_text=True)
+    assert "구분 시험" in client.get("/documents/GMP/purchasing").get_data(as_text=True)
+    assert "구분 시험" not in client.get("/documents/GTP/records").get_data(as_text=True)
