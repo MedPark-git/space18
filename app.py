@@ -753,6 +753,7 @@ def register_routes(app):
             LabelingAsset.updated_at.desc()
         ))
         old_stored = asset.stored_name
+        product_code = asset.product_code
         shared_count = 0
         if old_stored:
             shared_count = db.session.scalar(db.select(func.count(LabelingAsset.id)).where(
@@ -769,7 +770,7 @@ def register_routes(app):
         flash("선택한 이전 개정이력이 삭제되었습니다.", "success")
         if redirect_asset:
             return redirect(url_for("labeling_detail", asset_id=redirect_asset.id))
-        return redirect(url_for("labeling_master", product=asset.product_code))
+        return redirect(url_for("labeling_master", product=product_code))
 
     @app.get("/labeling/<uuid:asset_id>/file")
     @login_required
