@@ -236,6 +236,42 @@ class ScheduleTask(TimestampMixin, db.Model):
     updated_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
 
 
+class ValidationPlan(TimestampMixin, db.Model):
+    id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
+    year = db.Column(db.Integer, nullable=False, unique=True)
+    vmp_no = db.Column(db.String(100), nullable=False, default="")
+    title = db.Column(db.String(250), nullable=False)
+    issue_date = db.Column(db.Date)
+    owner = db.Column(db.String(100), nullable=False, default="")
+    status = db.Column(db.String(30), nullable=False, default="active")
+    notes = db.Column(db.Text, nullable=False, default="")
+    created_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
+    updated_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
+
+
+class ValidationRecord(TimestampMixin, db.Model):
+    id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
+    plan_id = db.Column(db.Uuid, db.ForeignKey("validation_plan.id", ondelete="CASCADE"), nullable=False, index=True)
+    sequence = db.Column(db.Integer, nullable=False, default=1)
+    validation_type = db.Column(db.String(100), nullable=False)
+    target_name = db.Column(db.String(250), nullable=False)
+    equipment_no = db.Column(db.String(100), nullable=False, default="")
+    validation_item = db.Column(db.String(250), nullable=False)
+    department = db.Column(db.String(100), nullable=False, default="")
+    cycle = db.Column(db.String(100), nullable=False, default="")
+    plan_doc_no = db.Column(db.String(100), nullable=False, default="")
+    report_doc_no = db.Column(db.String(100), nullable=False, default="")
+    last_completed_date = db.Column(db.Date)
+    next_due_date = db.Column(db.Date, index=True)
+    reminder_days = db.Column(db.Integer, nullable=False, default=60)
+    status = db.Column(db.String(30), nullable=False, default="scheduled", index=True)
+    owner = db.Column(db.String(100), nullable=False, default="")
+    result_note = db.Column(db.Text, nullable=False, default="")
+    created_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
+    updated_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
+    completed_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
+
+
 class AuditLog(db.Model):
     id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
     actor_id = db.Column(db.Uuid, db.ForeignKey("user.id"))
@@ -345,6 +381,24 @@ def schedule_view(task, today=None):
         "section_name": dict(WORK_SECTIONS.get(task.standard, [])).get(task.section, task.section),
         "standard_name": SCHEDULE_STANDARD_LABELS.get(task.standard, task.standard),
     }
+
+
+def validation_record_view(record, today=None):
+    today = today or date.today()
+    if record.status == "completed":
+        return {"record": record, "level": "completed", "dday": "완료", "status_name": "완료"}
+    if record.status == "event_based" or not record.next_due_date:
+        return {"record": record, "level": "event", "dday": "변경 시", "status_name": "변경 시"}
+    days = (record.next_due_date - today).days
+    if days < 0:
+        level, dday, status_name = "overdue", f"D+{abs(days)}", "기한 초과"
+    elif days <= 30:
+        level, dday, status_name = "urgent", f"D-{days}", "임박"
+    elif days <= record.reminder_days:
+        level, dday, status_name = "alert", f"D-{days}", "알림"
+    else:
+        level, dday, status_name = "upcoming", f"D-{days}", "예정"
+    return {"record": record, "level": level, "dday": dday, "status_name": status_name}
 
 
 def register_routes(app):
@@ -516,6 +570,121 @@ def register_routes(app):
         db.session.commit()
         flash("업무를 완료 처리했습니다.", "success")
         return redirect(url_for("schedule", standard=task.standard))
+
+    @app.route("/validation/GMP", methods=["GET", "POST"])
+    @login_required
+    def validation_management():
+        user = current_user()
+        if request.method == "POST":
+            if user.role not in {"admin", "editor"}:
+                abort(403)
+            action = request.form.get("action", "record")
+            if action == "plan":
+                year = int(request.form["year"])
+                if db.session.scalar(db.select(ValidationPlan).where(ValidationPlan.year == year)):
+                    flash("해당 연도의 VMP가 이미 등록되어 있습니다.", "error")
+                    return redirect(url_for("validation_management", year=year))
+                plan = ValidationPlan(
+                    year=year, vmp_no=request.form.get("vmp_no", "").strip(),
+                    title=request.form.get("title", "").strip() or f"{year}년도 Validation Master Plan",
+                    issue_date=date.fromisoformat(request.form["issue_date"]) if request.form.get("issue_date") else None,
+                    owner=request.form.get("owner", "").strip(), notes=request.form.get("notes", "").strip(),
+                    created_by=user.id, updated_by=user.id,
+                )
+                db.session.add(plan)
+                audit("validation_plan_created", "validation_plan", plan.id, f"{year} VMP")
+                db.session.commit()
+                flash(f"{year}년도 VMP가 등록되었습니다.", "success")
+                return redirect(url_for("validation_management", year=year))
+            plan = db.get_or_404(ValidationPlan, uuid.UUID(request.form["plan_id"]))
+            next_sequence = (db.session.scalar(db.select(func.max(ValidationRecord.sequence)).where(
+                ValidationRecord.plan_id == plan.id)) or 0) + 1
+            next_due = date.fromisoformat(request.form["next_due_date"]) if request.form.get("next_due_date") else None
+            record = ValidationRecord(
+                plan_id=plan.id, sequence=next_sequence,
+                validation_type=request.form["validation_type"].strip(),
+                target_name=request.form["target_name"].strip(),
+                equipment_no=request.form.get("equipment_no", "").strip() or "-",
+                validation_item=request.form["validation_item"].strip(),
+                department=request.form.get("department", "").strip(),
+                cycle=request.form.get("cycle", "").strip(),
+                plan_doc_no=request.form.get("plan_doc_no", "").strip() or "-",
+                report_doc_no=request.form.get("report_doc_no", "").strip() or "-",
+                last_completed_date=date.fromisoformat(request.form["last_completed_date"]) if request.form.get("last_completed_date") else None,
+                next_due_date=next_due,
+                reminder_days=int(request.form.get("reminder_days") or 60),
+                status="event_based" if not next_due else "scheduled",
+                owner=request.form.get("owner", "").strip(),
+                result_note=request.form.get("result_note", "").strip(),
+                created_by=user.id, updated_by=user.id,
+            )
+            db.session.add(record)
+            audit("validation_record_created", "validation_record", record.id, record.target_name)
+            db.session.commit()
+            flash("VMP 실행항목이 등록되었습니다.", "success")
+            return redirect(url_for("validation_management", year=plan.year))
+        plans = db.session.scalars(db.select(ValidationPlan).order_by(ValidationPlan.year.desc())).all()
+        requested_year = request.args.get("year", type=int)
+        selected_plan = next((p for p in plans if p.year == requested_year), None)
+        if not selected_plan and plans:
+            selected_plan = next((p for p in plans if p.year == date.today().year), plans[0])
+        records = db.session.scalars(db.select(ValidationRecord).where(
+            ValidationRecord.plan_id == selected_plan.id
+        ).order_by(ValidationRecord.sequence, ValidationRecord.next_due_date)).all() if selected_plan else []
+        views = [validation_record_view(record) for record in records]
+        summary = {
+            "total": len(records),
+            "completed": sum(1 for r in records if r.status == "completed"),
+            "overdue": sum(1 for v in views if v["level"] == "overdue"),
+            "upcoming": sum(1 for r in records if r.status not in {"completed", "event_based"}),
+            "progress": round(sum(1 for r in records if r.status == "completed") * 100 / len(records)) if records else 0,
+        }
+        return render_template("validation_management.html", plans=plans, plan=selected_plan,
+            views=views, summary=summary, today=date.today())
+
+    @app.route("/validation/<uuid:record_id>/edit", methods=["GET", "POST"])
+    @roles_required("admin", "editor")
+    def edit_validation_record(record_id):
+        record = db.get_or_404(ValidationRecord, record_id)
+        plan = db.get_or_404(ValidationPlan, record.plan_id)
+        if request.method == "POST":
+            record.validation_type = request.form["validation_type"].strip()
+            record.target_name = request.form["target_name"].strip()
+            record.equipment_no = request.form.get("equipment_no", "").strip() or "-"
+            record.validation_item = request.form["validation_item"].strip()
+            record.department = request.form.get("department", "").strip()
+            record.cycle = request.form.get("cycle", "").strip()
+            record.plan_doc_no = request.form.get("plan_doc_no", "").strip() or "-"
+            record.report_doc_no = request.form.get("report_doc_no", "").strip() or "-"
+            record.last_completed_date = date.fromisoformat(request.form["last_completed_date"]) if request.form.get("last_completed_date") else None
+            record.next_due_date = date.fromisoformat(request.form["next_due_date"]) if request.form.get("next_due_date") else None
+            record.reminder_days = int(request.form.get("reminder_days") or 60)
+            record.owner = request.form.get("owner", "").strip()
+            record.result_note = request.form.get("result_note", "").strip()
+            if record.status != "completed":
+                record.status = "scheduled" if record.next_due_date else "event_based"
+            record.updated_by = current_user().id
+            audit("validation_record_updated", "validation_record", record.id, record.target_name)
+            db.session.commit()
+            flash("Validation 항목이 수정되었습니다.", "success")
+            return redirect(url_for("validation_management", year=plan.year))
+        return render_template("validation_edit.html", record=record, plan=plan)
+
+    @app.post("/validation/<uuid:record_id>/complete")
+    @roles_required("admin", "editor")
+    def complete_validation_record(record_id):
+        record = db.get_or_404(ValidationRecord, record_id)
+        plan = db.get_or_404(ValidationPlan, record.plan_id)
+        record.status = "completed"
+        record.last_completed_date = date.fromisoformat(request.form["completed_date"]) if request.form.get("completed_date") else date.today()
+        record.report_doc_no = request.form.get("report_doc_no", record.report_doc_no).strip() or record.report_doc_no
+        record.result_note = request.form.get("result_note", "").strip() or record.result_note
+        record.completed_by = current_user().id
+        record.updated_by = current_user().id
+        audit("validation_record_completed", "validation_record", record.id, record.target_name)
+        db.session.commit()
+        flash("Validation 항목을 완료 처리했습니다.", "success")
+        return redirect(url_for("validation_management", year=plan.year))
 
     @app.route("/complaints/GMP", methods=["GET", "POST"])
     @login_required
@@ -839,6 +1008,8 @@ def register_routes(app):
         if section not in section_map:
             abort(404)
         section_name = section_map[section]
+        if category == "GMP" and section == "validation":
+            return redirect(url_for("validation_management"))
         if category == "GMP" and section == "complaints":
             return redirect(url_for("complaints_dashboard"))
         if category == "GMP" and section == "labeling":
