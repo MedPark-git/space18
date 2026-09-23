@@ -1,7 +1,7 @@
 {% extends 'base.html' %}{% block content %}
 <header class="complaint-head"><div><p class="eyebrow">GMP 제품/부품별 정보 · {{ product.name }}</p><h2>{{ asset.item_name }}</h2><p>{{ product.name }} ({{ product.korean }})의 최신 관리번호와 시안을 확인합니다.</p></div><a class="button ghost" href="{{ url_for('labeling_master', product=asset.product_code) }}">← 제품 부품목록</a></header>
 
-<section class="sample-detail-layout">
+<section class="sample-detail-layout revised-detail-layout">
   <div class="card sample-stage">
     {% if image_url %}
       <button class="image-zoom" type="button" onclick="document.getElementById('sampleZoom').showModal()"><img src="{{ image_url }}" alt="{{ product.name }} {{ asset.item_name }} 시안"><span>클릭하여 확대</span></button>
@@ -13,9 +13,9 @@
     {% endif %}
   </div>
 
-  <aside class="card sample-meta">
+  <aside class="card sample-meta revised-sample-meta">
     <div class="meta-head"><div><div class="product-chip {{ asset.product_code }}">{{ product.badge }} · {{ product.name }}</div><span class="status status-{{ asset.status }}">{{ status_labels[asset.status] }}</span></div><h3>{{ asset.item_name }}</h3></div>
-    <dl class="current-master-info">
+    <dl class="current-master-info no-wrap-info">
       <div><dt>제품 구분</dt><dd>{{ product.name }} ({{ product.korean }})</dd></div>
       <div class="key-row"><dt>관리번호</dt><dd class="control-number">{{ asset.control_no or '미등록' }}</dd></div>
       <div><dt>개정번호</dt><dd>{{ asset.revision }}</dd></div>
@@ -27,56 +27,44 @@
     {% if asset.description %}<p class="master-description">{{ asset.description }}</p>{% endif %}
 
     {% if current_user.role in ['admin','editor'] %}
-    <section class="image-manager">
+    <section class="image-manager compact-image-manager">
       <div class="side-section-title"><strong>시안 사진 관리</strong><span>JPG·PNG·PDF / 20MB</span></div>
-      <form method="post" enctype="multipart/form-data" action="{{ url_for('update_labeling_image', asset_id=asset.id) }}" class="image-upload-form submit-once">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <label class="file-picker"><input type="file" name="file" accept=".jpg,.jpeg,.png,.pdf" required><span>파일 선택</span></label>
-        <button type="submit">{{ '사진 교체' if image_url or is_pdf else '사진 추가' }}</button>
-      </form>
-      {% if image_url or is_pdf %}
-      <form method="post" action="{{ url_for('delete_labeling_image', asset_id=asset.id) }}" onsubmit="return confirm('현재 시안 사진을 삭제하시겠습니까? 개정이력은 유지됩니다.')">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="danger outline full">사진 삭제</button>
-      </form>
-      {% endif %}
-      {% if asset.stored_name %}<a class="button ghost full" download href="{{ url_for('labeling_file', asset_id=asset.id, download=1) }}">원본 다운로드</a>{% endif %}
-    </section>
-    {% endif %}
-
-    <section class="side-history">
-      <div class="side-section-title"><strong>최근 개정이력</strong><span>{{ history|length }}건</span></div>
-      <div class="side-history-list">
-        {% for h in history[:3] %}
-        <a href="{{ url_for('labeling_detail', asset_id=h.id) }}" class="{% if h.id==asset.id %}selected{% endif %}">
-          <div><b>Rev. {{ h.revision }}</b><span>{{ h.effective_date or '-' }}</span></div>
-          <strong>{{ h.control_no or '미등록' }}</strong>
-          <small>{{ status_labels[h.status] }}</small>
-        </a>
-        {% endfor %}
+      <div class="photo-action-row">
+        <form method="post" enctype="multipart/form-data" action="{{ url_for('update_labeling_image', asset_id=asset.id) }}" class="image-upload-inline submit-once">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="file-picker inline-picker"><input type="file" name="file" accept=".jpg,.jpeg,.png,.pdf" required><span>파일 선택</span></label>
+          <button type="submit">{{ '사진 교체' if image_url or is_pdf else '사진 추가' }}</button>
+        </form>
+        {% if image_url or is_pdf %}
+        <form method="post" action="{{ url_for('delete_labeling_image', asset_id=asset.id) }}" onsubmit="return confirm('현재 시안 사진을 삭제하시겠습니까? 개정이력은 유지됩니다.')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="danger outline">사진 삭제</button>
+        </form>
+        {% endif %}
       </div>
-      <a class="history-jump" href="#revision-history">전체 개정이력 보기 ↓</a>
+      {% if asset.stored_name %}<a class="original-download" download href="{{ url_for('labeling_file', asset_id=asset.id, download=1) }}">원본 파일 다운로드</a>{% endif %}
     </section>
+
+    <details class="master-register side-revision-form">
+      <summary>{% if asset.status=='preparing' %}첫 제품/부품 정보 등록{% else %}새 개정정보 등록{% endif %}</summary>
+      <form method="post" enctype="multipart/form-data" class="grid-form submit-once">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>제품<input value="{{ product.name }} ({{ product.korean }})" disabled></label>
+        <label>부품<input value="{{ asset.item_name }}" disabled></label>
+        <label>관리번호<input name="control_no" value="{{ asset.control_no }}" required></label>
+        <label>개정번호<input name="revision" value="{% if asset.revision=='-' %}0{% else %}{{ asset.revision }}{% endif %}" required></label>
+        <label>적용일자<input type="date" name="effective_date" value="{{ asset.effective_date or '' }}"></label>
+        <label>상태<select name="status"><option value="review">검토 중</option><option value="current" selected>최신본</option></select></label>
+        <label>적용 범위<input name="market_scope" value="{{ asset.market_scope }}"></label>
+        <label>사용기한<input name="valid_until_note" value="{{ asset.valid_until_note }}"></label>
+        <label class="wide">새 개정 시안<input type="file" name="file" accept=".jpg,.jpeg,.png,.pdf"></label>
+        <label class="wide">설명·변경사항<textarea name="description">{{ asset.description if asset.status!='preparing' else '' }}</textarea></label>
+        <div class="wide"><button type="submit">새 개정정보 저장</button></div>
+      </form>
+    </details>
+    {% endif %}
   </aside>
 </section>
-
-{% if current_user.role in ['admin','editor'] %}
-<details class="card master-register"><summary>{% if asset.status=='preparing' %}첫 제품/부품 정보 등록{% else %}새 개정정보 등록{% endif %}</summary>
-<form method="post" enctype="multipart/form-data" class="grid-form submit-once">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <label>제품<input value="{{ product.name }} ({{ product.korean }})" disabled></label>
-  <label>부품<input value="{{ asset.item_name }}" disabled></label>
-  <label>관리번호<input name="control_no" value="{{ asset.control_no }}" required></label>
-  <label>개정번호<input name="revision" value="{% if asset.revision=='-' %}0{% else %}{{ asset.revision }}{% endif %}" required></label>
-  <label>적용일자<input type="date" name="effective_date" value="{{ asset.effective_date or '' }}"></label>
-  <label>상태<select name="status"><option value="review">검토 중</option><option value="current" selected>최신본</option></select></label>
-  <label>적용 범위<input name="market_scope" value="{{ asset.market_scope }}"></label>
-  <label>사용기한<input name="valid_until_note" value="{{ asset.valid_until_note }}"></label>
-  <label class="wide">시안 파일<input type="file" name="file" accept=".jpg,.jpeg,.png,.pdf"><small>새 개정 시 시안을 함께 등록할 수 있습니다.</small></label>
-  <label class="wide">설명·변경사항<textarea name="description">{{ asset.description if asset.status!='preparing' else '' }}</textarea></label>
-  <div class="wide"><button type="submit">새 개정정보 저장</button></div>
-</form></details>
-{% endif %}
 
 <section class="card" id="revision-history">
   <div class="card-title"><div><p class="eyebrow">REVISION HISTORY</p><h3>{{ product.name }} {{ asset.item_name }} 개정이력</h3></div><span>{{ history|length }}건</span></div>
