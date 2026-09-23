@@ -48,6 +48,7 @@ WORK_SECTIONS = {
     "COMMON": [("records", "문서 및 기록관리"), ("external", "외부출처문서"), ("purchasing", "구매관리"), ("monitoring", "모니터링 및 측정"), ("analysis", "데이터 분석"), ("validation", "유효성 관리"), ("complaints", "고객불만"), ("labeling", "라벨링·패키지 이력관리")],
 }
 SCHEDULE_STANDARD_LABELS = {"GMP": "GMP", "GTP": "GTP", "COMMON": "GMP·GTP 공통"}
+SUPPLIER_GRADE_YEARS = {"A": 1, "B": 2, "C": 3}
 
 
 def utcnow():
@@ -272,6 +273,34 @@ class ValidationRecord(TimestampMixin, db.Model):
     completed_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
 
 
+class Supplier(TimestampMixin, db.Model):
+    id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
+    name = db.Column(db.String(200), nullable=False, unique=True, index=True)
+    purchase_item = db.Column(db.String(250), nullable=False, default="")
+    contact_person = db.Column(db.String(100), nullable=False, default="")
+    business_no = db.Column(db.String(50), nullable=False, default="")
+    address = db.Column(db.String(400), nullable=False, default="")
+    phone = db.Column(db.String(100), nullable=False, default="")
+    impact_grade = db.Column(db.String(1), nullable=False, index=True)
+    initial_approval_date = db.Column(db.Date, nullable=False)
+    current_score = db.Column(db.Integer)
+    reminder_days = db.Column(db.Integer, nullable=False, default=90)
+    notes = db.Column(db.Text, nullable=False, default="")
+    is_active = db.Column(db.Boolean, nullable=False, default=True, index=True)
+    created_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
+    updated_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
+
+
+class SupplierEvaluation(TimestampMixin, db.Model):
+    id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
+    supplier_id = db.Column(db.Uuid, db.ForeignKey("supplier.id", ondelete="CASCADE"), nullable=False, index=True)
+    evaluation_date = db.Column(db.Date, nullable=False, index=True)
+    score = db.Column(db.Integer)
+    result = db.Column(db.String(30), nullable=False, default="approved")
+    notes = db.Column(db.Text, nullable=False, default="")
+    evaluated_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
+
+
 class AuditLog(db.Model):
     id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
     actor_id = db.Column(db.Uuid, db.ForeignKey("user.id"))
@@ -401,6 +430,31 @@ def validation_record_view(record, today=None):
     return {"record": record, "level": level, "dday": dday, "status_name": status_name}
 
 
+def add_years(value, years):
+    try:
+        return value.replace(year=value.year + years)
+    except ValueError:
+        return value.replace(year=value.year + years, day=28)
+
+
+def supplier_view(supplier, latest_evaluation=None, today=None):
+    today = today or date.today()
+    base_date = latest_evaluation.evaluation_date if latest_evaluation else supplier.initial_approval_date
+    due_date = add_years(base_date, SUPPLIER_GRADE_YEARS[supplier.impact_grade])
+    days = (due_date - today).days
+    if days < 0:
+        level, dday, status_name = "overdue", f"D+{abs(days)}", "기한 경과"
+    elif days <= 30:
+        level, dday, status_name = "urgent", f"D-{days}", "재평가 임박"
+    elif days <= supplier.reminder_days:
+        level, dday, status_name = "alert", f"D-{days}", "알림"
+    else:
+        level, dday, status_name = "upcoming", f"D-{days}", "정상"
+    return {"supplier": supplier, "latest": latest_evaluation, "base_date": base_date,
+            "due_date": due_date, "cycle_years": SUPPLIER_GRADE_YEARS[supplier.impact_grade],
+            "days": days, "level": level, "dday": dday, "status_name": status_name}
+
+
 def register_routes(app):
     @app.before_request
     def session_policy():
@@ -473,7 +527,18 @@ def register_routes(app):
                 ScheduleTask.standard == standard, ScheduleTask.status != "completed"
             ).order_by(ScheduleTask.due_date).limit(6)).all()
             schedule_views[standard] = [schedule_view(task) for task in tasks]
-        return render_template("dashboard.html", counts=counts, recent=recent, schedule_views=schedule_views)
+        suppliers = db.session.scalars(db.select(Supplier).where(Supplier.is_active.is_(True))).all()
+        supplier_alerts = []
+        for supplier in suppliers:
+            latest = db.session.scalar(db.select(SupplierEvaluation).where(
+                SupplierEvaluation.supplier_id == supplier.id
+            ).order_by(SupplierEvaluation.evaluation_date.desc()).limit(1))
+            view = supplier_view(supplier, latest)
+            if view["days"] <= supplier.reminder_days:
+                supplier_alerts.append(view)
+        supplier_alerts.sort(key=lambda item: item["due_date"])
+        return render_template("dashboard.html", counts=counts, recent=recent, schedule_views=schedule_views,
+            supplier_alerts=supplier_alerts[:6])
 
     @app.get("/work/<standard>")
     @login_required
@@ -486,6 +551,7 @@ def register_routes(app):
             section_counts["complaints"] = db.session.scalar(db.select(func.count(Complaint.id)).where(Complaint.standard == "GMP"))
             section_counts["labeling"] = db.session.scalar(db.select(func.count(LabelingAsset.id)).where(LabelingAsset.standard == "GMP", LabelingAsset.status == "current"))
             section_counts["validation"] = db.session.scalar(db.select(func.count(ValidationPlan.id)))
+            section_counts["purchasing"] = db.session.scalar(db.select(func.count(Supplier.id)).where(Supplier.is_active.is_(True)))
         return render_template("work_index.html", standard=standard, sections=WORK_SECTIONS[standard], section_counts=section_counts)
 
     @app.get("/api/session")
@@ -571,6 +637,110 @@ def register_routes(app):
         db.session.commit()
         flash("업무를 완료 처리했습니다.", "success")
         return redirect(url_for("schedule", standard=task.standard))
+
+    @app.route("/purchasing/suppliers", methods=["GET", "POST"])
+    @login_required
+    def supplier_management():
+        user = current_user()
+        if request.method == "POST":
+            if user.role not in {"admin", "editor"}:
+                abort(403)
+            grade = request.form.get("impact_grade", "").upper()
+            if grade not in SUPPLIER_GRADE_YEARS:
+                abort(400)
+            score = request.form.get("current_score", "").strip()
+            supplier = Supplier(
+                name=request.form["name"].strip(), purchase_item=request.form.get("purchase_item", "").strip(),
+                contact_person=request.form.get("contact_person", "").strip(),
+                business_no=request.form.get("business_no", "").strip(), address=request.form.get("address", "").strip(),
+                phone=request.form.get("phone", "").strip(), impact_grade=grade,
+                initial_approval_date=date.fromisoformat(request.form["initial_approval_date"]),
+                current_score=int(score) if score else None,
+                reminder_days=int(request.form.get("reminder_days") or 90), notes=request.form.get("notes", "").strip(),
+                created_by=user.id, updated_by=user.id,
+            )
+            try:
+                db.session.add(supplier)
+                audit("supplier_created", "supplier", supplier.id, supplier.name)
+                db.session.commit()
+                flash("공급업체가 등록되었습니다.", "success")
+            except SQLAlchemyError:
+                db.session.rollback()
+                flash("동일한 업체명이 있거나 저장에 실패했습니다.", "error")
+            return redirect(url_for("supplier_management"))
+        keyword = request.args.get("q", "").strip()
+        grade = request.args.get("grade", "").upper()
+        query = db.select(Supplier).where(Supplier.is_active.is_(True))
+        if keyword:
+            query = query.where(db.or_(Supplier.name.ilike(f"%{keyword}%"), Supplier.purchase_item.ilike(f"%{keyword}%")))
+        if grade in SUPPLIER_GRADE_YEARS:
+            query = query.where(Supplier.impact_grade == grade)
+        suppliers = db.session.scalars(query.order_by(Supplier.impact_grade, Supplier.name)).all()
+        views = []
+        for supplier in suppliers:
+            latest = db.session.scalar(db.select(SupplierEvaluation).where(
+                SupplierEvaluation.supplier_id == supplier.id
+            ).order_by(SupplierEvaluation.evaluation_date.desc()).limit(1))
+            views.append(supplier_view(supplier, latest))
+        summary = {"total": len(views), "overdue": sum(v["level"] == "overdue" for v in views),
+            "urgent": sum(v["level"] in {"urgent", "alert"} for v in views),
+            "normal": sum(v["level"] == "upcoming" for v in views)}
+        return render_template("supplier_management.html", views=views, summary=summary,
+            grade_years=SUPPLIER_GRADE_YEARS, q=keyword, selected_grade=grade, today=date.today())
+
+    @app.route("/purchasing/suppliers/<uuid:supplier_id>/edit", methods=["GET", "POST"])
+    @roles_required("admin", "editor")
+    def edit_supplier(supplier_id):
+        supplier = db.get_or_404(Supplier, supplier_id)
+        if request.method == "POST":
+            grade = request.form.get("impact_grade", "").upper()
+            if grade not in SUPPLIER_GRADE_YEARS:
+                abort(400)
+            supplier.name = request.form["name"].strip()
+            supplier.purchase_item = request.form.get("purchase_item", "").strip()
+            supplier.contact_person = request.form.get("contact_person", "").strip()
+            supplier.business_no = request.form.get("business_no", "").strip()
+            supplier.address = request.form.get("address", "").strip()
+            supplier.phone = request.form.get("phone", "").strip()
+            supplier.impact_grade = grade
+            supplier.initial_approval_date = date.fromisoformat(request.form["initial_approval_date"])
+            score = request.form.get("current_score", "").strip()
+            supplier.current_score = int(score) if score else None
+            supplier.reminder_days = int(request.form.get("reminder_days") or 90)
+            supplier.notes = request.form.get("notes", "").strip()
+            supplier.updated_by = current_user().id
+            audit("supplier_updated", "supplier", supplier.id, supplier.name)
+            db.session.commit()
+            flash("공급업체 정보가 수정되었습니다.", "success")
+            return redirect(url_for("supplier_management"))
+        evaluations = db.session.scalars(db.select(SupplierEvaluation).where(
+            SupplierEvaluation.supplier_id == supplier.id
+        ).order_by(SupplierEvaluation.evaluation_date.desc())).all()
+        return render_template("supplier_edit.html", supplier=supplier, evaluations=evaluations,
+            grade_years=SUPPLIER_GRADE_YEARS)
+
+    @app.post("/purchasing/suppliers/<uuid:supplier_id>/evaluate")
+    @roles_required("admin", "editor")
+    def complete_supplier_evaluation(supplier_id):
+        supplier = db.get_or_404(Supplier, supplier_id)
+        score_value = request.form.get("score", "").strip()
+        score = int(score_value) if score_value else None
+        if score is not None and not 0 <= score <= 100:
+            abort(400)
+        result = request.form.get("result", "approved")
+        if result not in {"approved", "conditional", "rejected"}:
+            abort(400)
+        evaluation = SupplierEvaluation(
+            supplier_id=supplier.id, evaluation_date=date.fromisoformat(request.form["evaluation_date"]),
+            score=score, result=result, notes=request.form.get("notes", "").strip(), evaluated_by=current_user().id,
+        )
+        supplier.current_score = score
+        supplier.updated_by = current_user().id
+        db.session.add(evaluation)
+        audit("supplier_evaluated", "supplier", supplier.id, f"{supplier.name} 재평가 완료")
+        db.session.commit()
+        flash("재평가를 완료했습니다. 차기 예정일이 자동 갱신되었습니다.", "success")
+        return redirect(url_for("supplier_management"))
 
     @app.route("/validation/GMP", methods=["GET", "POST"])
     @login_required
