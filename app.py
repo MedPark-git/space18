@@ -485,6 +485,7 @@ def register_routes(app):
         if standard == "GMP":
             section_counts["complaints"] = db.session.scalar(db.select(func.count(Complaint.id)).where(Complaint.standard == "GMP"))
             section_counts["labeling"] = db.session.scalar(db.select(func.count(LabelingAsset.id)).where(LabelingAsset.standard == "GMP", LabelingAsset.status == "current"))
+            section_counts["validation"] = db.session.scalar(db.select(func.count(ValidationPlan.id)))
         return render_template("work_index.html", standard=standard, sections=WORK_SECTIONS[standard], section_counts=section_counts)
 
     @app.get("/api/session")
