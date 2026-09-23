@@ -1,4 +1,5 @@
 import os
+import json
 import uuid
 from collections import defaultdict, deque
 from datetime import date, datetime, timedelta, timezone
@@ -106,6 +107,7 @@ def create_app(test_config=None):
         if not app.config.get("TESTING"):
             run_migrations_once()
             bootstrap_admin()
+            bootstrap_suppliers()
     return app
 
 
@@ -284,6 +286,7 @@ class Supplier(TimestampMixin, db.Model):
     impact_grade = db.Column(db.String(1), nullable=False, index=True)
     initial_approval_date = db.Column(db.Date, nullable=False)
     current_score = db.Column(db.Integer)
+    next_due_override = db.Column(db.Date)
     reminder_days = db.Column(db.Integer, nullable=False, default=90)
     notes = db.Column(db.Text, nullable=False, default="")
     is_active = db.Column(db.Boolean, nullable=False, default=True, index=True)
@@ -348,6 +351,30 @@ def bootstrap_admin():
     except SQLAlchemyError:
         db.session.rollback()
         raise
+
+
+def bootstrap_suppliers():
+    payload = os.getenv("SUPPLIER_BOOTSTRAP_JSON", "").strip()
+    if not payload or not inspect(db.engine).has_table("supplier"):
+        return
+    for item in json.loads(payload):
+        supplier = db.session.scalar(db.select(Supplier).where(Supplier.name == item["name"]))
+        if not supplier:
+            supplier = Supplier(name=item["name"])
+            db.session.add(supplier)
+        supplier.purchase_item = item.get("purchase_item", "")
+        supplier.contact_person = item.get("contact_person", "")
+        supplier.business_no = item.get("business_no", "")
+        supplier.address = item.get("address", "")
+        supplier.phone = item.get("phone", "")
+        supplier.impact_grade = item["impact_grade"]
+        supplier.initial_approval_date = date.fromisoformat(item["initial_approval_date"])
+        supplier.current_score = item.get("current_score")
+        supplier.next_due_override = date.fromisoformat(item["next_due_override"]) if item.get("next_due_override") else None
+        supplier.reminder_days = item.get("reminder_days", 90)
+        supplier.notes = item.get("notes", "")
+        supplier.is_active = True
+    db.session.commit()
 
 
 def current_user():
@@ -440,7 +467,8 @@ def add_years(value, years):
 def supplier_view(supplier, latest_evaluation=None, today=None):
     today = today or date.today()
     base_date = latest_evaluation.evaluation_date if latest_evaluation else supplier.initial_approval_date
-    due_date = add_years(base_date, SUPPLIER_GRADE_YEARS[supplier.impact_grade])
+    due_date = (supplier.next_due_override if not latest_evaluation and supplier.next_due_override
+                else add_years(base_date, SUPPLIER_GRADE_YEARS[supplier.impact_grade]))
     days = (due_date - today).days
     if days < 0:
         level, dday, status_name = "overdue", f"D+{abs(days)}", "기한 경과"
@@ -668,6 +696,7 @@ def register_routes(app):
                 phone=request.form.get("phone", "").strip(), impact_grade=grade,
                 initial_approval_date=date.fromisoformat(request.form["initial_approval_date"]),
                 current_score=int(score) if score else None,
+                next_due_override=date.fromisoformat(request.form["next_due_override"]) if request.form.get("next_due_override") else None,
                 reminder_days=int(request.form.get("reminder_days") or 90), notes=request.form.get("notes", "").strip(),
                 created_by=user.id, updated_by=user.id,
             )
@@ -718,6 +747,7 @@ def register_routes(app):
             supplier.initial_approval_date = date.fromisoformat(request.form["initial_approval_date"])
             score = request.form.get("current_score", "").strip()
             supplier.current_score = int(score) if score else None
+            supplier.next_due_override = date.fromisoformat(request.form["next_due_override"]) if request.form.get("next_due_override") else None
             supplier.reminder_days = int(request.form.get("reminder_days") or 90)
             supplier.notes = request.form.get("notes", "").strip()
             supplier.updated_by = current_user().id
@@ -747,6 +777,7 @@ def register_routes(app):
             score=score, result=result, notes=request.form.get("notes", "").strip(), evaluated_by=current_user().id,
         )
         supplier.current_score = score
+        supplier.next_due_override = None
         supplier.updated_by = current_user().id
         db.session.add(evaluation)
         audit("supplier_evaluated", "supplier", supplier.id, f"{supplier.name} 재평가 완료")
