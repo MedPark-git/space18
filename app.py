@@ -642,6 +642,26 @@ def register_routes(app):
         return render_template("validation_management.html", plans=plans, plan=selected_plan,
             views=views, summary=summary, today=date.today())
 
+    @app.route("/validation/plan/<uuid:plan_id>/edit", methods=["GET", "POST"])
+    @roles_required("admin", "editor")
+    def edit_validation_plan(plan_id):
+        plan = db.get_or_404(ValidationPlan, plan_id)
+        if request.method == "POST":
+            plan.vmp_no = request.form.get("vmp_no", "").strip()
+            plan.title = request.form["title"].strip()
+            plan.issue_date = date.fromisoformat(request.form["issue_date"]) if request.form.get("issue_date") else None
+            plan.owner = request.form.get("owner", "").strip()
+            plan.status = request.form.get("status", "active")
+            if plan.status not in {"active", "completed"}:
+                abort(400)
+            plan.notes = request.form.get("notes", "").strip()
+            plan.updated_by = current_user().id
+            audit("validation_plan_updated", "validation_plan", plan.id, f"{plan.year} VMP")
+            db.session.commit()
+            flash("VMP 정보가 수정되었습니다.", "success")
+            return redirect(url_for("validation_management", year=plan.year))
+        return render_template("validation_plan_edit.html", plan=plan)
+
     @app.route("/validation/<uuid:record_id>/edit", methods=["GET", "POST"])
     @roles_required("admin", "editor")
     def edit_validation_record(record_id):
@@ -1221,51 +1241,4 @@ def register_routes(app):
             audit("settings_updated", "system")
             db.session.commit(); flash("설정이 저장되었습니다.", "success")
             return redirect(url_for("settings"))
-        values = {r.key:r.value for r in db.session.scalars(db.select(SystemSetting)).all()}
-        return render_template("settings.html", values=values)
-
-    @app.get("/admin/audit")
-    @roles_required("admin")
-    def audit_logs():
-        logs = db.session.scalars(db.select(AuditLog).order_by(AuditLog.created_at.desc()).limit(500)).all()
-        return render_template("audit.html", logs=logs)
-
-
-def register_context(app):
-    @app.context_processor
-    def inject_globals():
-        return {"current_user": current_user(), "to_kst": lambda dt: dt.astimezone(KST).strftime("%Y-%m-%d %H:%M") if dt else "-", "site_name": "서울 3-site 기술부(품질)", "section_label": lambda category, slug: dict(WORK_SECTIONS.get(category, [])).get(slug, slug)}
-
-
-def register_errors(app):
-    @app.teardown_request
-    def rollback_on_error(error):
-        if error:
-            db.session.rollback()
-
-    for code, message in [(403, "접근 권한이 없습니다."), (404, "페이지를 찾을 수 없습니다."), (500, "시스템 오류가 발생했습니다.")]:
-        def handler(error, code=code, message=message):
-            if code == 500:
-                db.session.rollback()
-            return render_template("error.html", code=code, message=message), code
-        app.register_error_handler(code, handler)
-
-
-try:
-    app = create_app()
-except RuntimeError as startup_error:
-    app = Flask(__name__)
-    app.config["STARTUP_ERROR"] = str(startup_error)
-
-    @app.get("/health")
-    def unavailable_health():
-        return jsonify(status="error", database=False, database_backend="postgresql", database_writable=False, application_ready=False), 503
-
-    @app.route("/", defaults={"path": ""})
-    @app.route("/<path:path>")
-    def unavailable(path):
-        return "서비스 준비가 완료되지 않았습니다. PostgreSQL 및 필수 환경설정을 확인하세요.", 503
-
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8000")), debug=False)
+        values = {r.key:r.value for 
