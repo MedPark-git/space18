@@ -155,3 +155,10 @@
 .label-market-tabs a.overseas.active>span{background:#6941c6}
 .split-market-chip{display:inline-block;margin-bottom:9px;padding:5px 8px;border-radius:6px;background:#f2f0ff;color:#6941c6;font-size:11px;font-weight:900}
 @media(max-width:650px){.label-market-tabs{grid-template-columns:1fr}.label-market-tabs a small{white-space:normal}}
+
+
+/* Revision history deletion controls */
+.inline-delete-form{display:inline;margin:0}
+.history-delete-button{padding:5px 9px;border:1px solid #fda29b;border-radius:6px;background:#fff;color:#b42318;font-size:12px;font-weight:800}
+.history-delete-button:hover{background:#fff1f0}
+.protected-history{color:#98a2b3;font-size:12px;white-space:nowrap}
