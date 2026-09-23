@@ -455,6 +455,11 @@ def supplier_view(supplier, latest_evaluation=None, today=None):
             "days": days, "level": level, "dday": dday, "status_name": status_name}
 
 
+def supplier_schema_ready():
+    inspector = inspect(db.engine)
+    return inspector.has_table("supplier") and inspector.has_table("supplier_evaluation")
+
+
 def register_routes(app):
     @app.before_request
     def session_policy():
@@ -527,15 +532,16 @@ def register_routes(app):
                 ScheduleTask.standard == standard, ScheduleTask.status != "completed"
             ).order_by(ScheduleTask.due_date).limit(6)).all()
             schedule_views[standard] = [schedule_view(task) for task in tasks]
-        suppliers = db.session.scalars(db.select(Supplier).where(Supplier.is_active.is_(True))).all()
         supplier_alerts = []
-        for supplier in suppliers:
-            latest = db.session.scalar(db.select(SupplierEvaluation).where(
-                SupplierEvaluation.supplier_id == supplier.id
-            ).order_by(SupplierEvaluation.evaluation_date.desc()).limit(1))
-            view = supplier_view(supplier, latest)
-            if view["days"] <= supplier.reminder_days:
-                supplier_alerts.append(view)
+        if supplier_schema_ready():
+            suppliers = db.session.scalars(db.select(Supplier).where(Supplier.is_active.is_(True))).all()
+            for supplier in suppliers:
+                latest = db.session.scalar(db.select(SupplierEvaluation).where(
+                    SupplierEvaluation.supplier_id == supplier.id
+                ).order_by(SupplierEvaluation.evaluation_date.desc()).limit(1))
+                view = supplier_view(supplier, latest)
+                if view["days"] <= supplier.reminder_days:
+                    supplier_alerts.append(view)
         supplier_alerts.sort(key=lambda item: item["due_date"])
         return render_template("dashboard.html", counts=counts, recent=recent, schedule_views=schedule_views,
             supplier_alerts=supplier_alerts[:6])
@@ -551,7 +557,8 @@ def register_routes(app):
             section_counts["complaints"] = db.session.scalar(db.select(func.count(Complaint.id)).where(Complaint.standard == "GMP"))
             section_counts["labeling"] = db.session.scalar(db.select(func.count(LabelingAsset.id)).where(LabelingAsset.standard == "GMP", LabelingAsset.status == "current"))
             section_counts["validation"] = db.session.scalar(db.select(func.count(ValidationPlan.id)))
-            section_counts["purchasing"] = db.session.scalar(db.select(func.count(Supplier.id)).where(Supplier.is_active.is_(True)))
+            section_counts["purchasing"] = (db.session.scalar(db.select(func.count(Supplier.id)).where(
+                Supplier.is_active.is_(True))) if supplier_schema_ready() else 0)
         return render_template("work_index.html", standard=standard, sections=WORK_SECTIONS[standard], section_counts=section_counts)
 
     @app.get("/api/session")
@@ -642,6 +649,11 @@ def register_routes(app):
     @login_required
     def supplier_management():
         user = current_user()
+        if not supplier_schema_ready():
+            flash("공급업체 관리 DB를 준비하고 있습니다. 잠시 후 다시 시도해 주세요.", "error")
+            return render_template("supplier_management.html", views=[],
+                summary={"total": 0, "overdue": 0, "urgent": 0, "normal": 0},
+                grade_years=SUPPLIER_GRADE_YEARS, q="", selected_grade="", today=date.today())
         if request.method == "POST":
             if user.role not in {"admin", "editor"}:
                 abort(403)
