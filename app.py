@@ -72,7 +72,7 @@ def create_app(test_config=None):
     app.config.update(
         SECRET_KEY=os.getenv("SECRET_KEY") or ("test-secret" if test_config else None),
         SQLALCHEMY_DATABASE_URI=database_uri() if not test_config else test_config["SQLALCHEMY_DATABASE_URI"],
-        SQLALCHEMY_ENGINE_OPTIONS={"pool_pre_ping": True, "pool_recycle": 300, "pool_size": 5, "max_overflow": 5},
+        SQLALCHEMY_ENGINE_OPTIONS={"pool_pre_ping": True, "pool_recycle": 300, "pool_size": 5, "max_overflow": 5, "connect_args": {"connect_timeout": 5}},
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         PERMANENT_SESSION_LIFETIME=timedelta(minutes=60),
         SESSION_COOKIE_HTTPONLY=True,
@@ -424,7 +424,8 @@ def register_routes(app):
             return jsonify(result), 200
         except SQLAlchemyError:
             db.session.rollback()
-            return jsonify(result), 503
+            result["status"] = "degraded"
+            return jsonify(result), 200
 
     @app.route("/login", methods=["GET", "POST"])
     def login():
@@ -1219,6 +1220,4 @@ def register_routes(app):
         db.session.commit(); flash("사용자 정보가 수정되었습니다.", "success")
         return redirect(url_for("users"))
 
-    @app.post("/admin/users/<uuid:user_id>/reset-password")
-    @roles_required("admin")
-    def reset_p
+    @app.post("/admin/users/<uuid:user_id>/reset-pa
