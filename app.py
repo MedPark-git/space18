@@ -1222,6 +1222,4 @@ def register_routes(app):
 
     @app.post("/admin/users/<uuid:user_id>/reset-password")
     @roles_required("admin")
-    def reset_password(user_id):
-        user = db.get_or_404(User, user_id)
-        te
+    def reset_p
