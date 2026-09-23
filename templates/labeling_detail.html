@@ -13,7 +13,7 @@
     {% endif %}
   </div>
 
-  <aside class="card reference-meta-panel polished-reference-panel">
+  <section class="card reference-meta-panel polished-reference-panel" aria-label="최신 시안 정보">
     <div class="reference-panel-head">
       <div>
         <span class="reference-overline">CURRENT MASTER</span>
@@ -66,7 +66,7 @@
       {% if asset.stored_name %}<a class="panel-download" download href="{{ url_for('labeling_file', asset_id=asset.id, download=1) }}">원본 파일 내려받기</a>{% endif %}
     </div>
     {% endif %}
-  </aside>
+  </section>
 </section>
 
 {% if current_user.role in ['admin','editor'] %}
