@@ -35,6 +35,8 @@ LABELING_PRODUCTS = {
     "dental": {"name": "MedParkAlloD", "korean": "덴탈", "badge": "DENTAL"},
 }
 LABELING_ICONS = {"vial": "▥", "blister": "▦", "ifu": "IFU", "quick_guide": "QG", "product_box": "□"}
+SPLIT_MARKET_LABELING_TYPES = {"ifu", "quick_guide", "product_box"}
+MARKET_VARIANT_LABELS = {"common": "국내/해외 공통", "domestic": "국내용", "overseas": "해외용"}
 COMPLAINT_STATUS_LABELS = {
     "received": "접수", "investigating": "조사 중", "action": "조치 중",
     "completed": "처리 완료", "overdue": "기한 초과",
@@ -204,6 +206,7 @@ class LabelingAsset(TimestampMixin, db.Model):
     product_code = db.Column(db.String(30), nullable=False, index=True)
     product_name = db.Column(db.String(200), nullable=False, default="")
     market_scope = db.Column(db.String(100), nullable=False, default="국내/해외향 공통")
+    market_variant = db.Column(db.String(20), nullable=False, default="common", index=True)
     valid_until_note = db.Column(db.String(150), nullable=False, default="추후 개정 시")
     control_no = db.Column(db.String(100), nullable=False, default="")
     revision = db.Column(db.String(50), nullable=False, default="-")
@@ -629,9 +632,10 @@ def register_routes(app):
             product_code = "medical"
         assets = []
         for slug, name in LABELING_TYPES:
+            preferred_variant = "domestic" if slug in SPLIT_MARKET_LABELING_TYPES else "common"
             row = db.session.scalar(db.select(LabelingAsset).where(
                 LabelingAsset.standard == "GMP", LabelingAsset.product_code == product_code,
-                LabelingAsset.item_type == slug
+                LabelingAsset.item_type == slug, LabelingAsset.market_variant == preferred_variant
             ).order_by(
                 case((LabelingAsset.status == "current", 0), (LabelingAsset.status == "review", 1), else_=2),
                 LabelingAsset.updated_at.desc()
@@ -663,19 +667,23 @@ def register_routes(app):
             is_placeholder = asset.status == "preparing" and not asset.control_no
             target = asset if is_placeholder else LabelingAsset(
                 standard=asset.standard, product_code=asset.product_code,
-                item_type=asset.item_type, item_name=asset.item_name, created_by=user.id
+                item_type=asset.item_type, item_name=asset.item_name,
+                market_variant=asset.market_variant, created_by=user.id
             )
             if status_value == "current":
                 previous = db.session.scalars(db.select(LabelingAsset).where(
                     LabelingAsset.standard == asset.standard, LabelingAsset.product_code == asset.product_code,
-                    LabelingAsset.item_type == asset.item_type, LabelingAsset.status == "current",
-                    LabelingAsset.id != target.id
+                    LabelingAsset.item_type == asset.item_type,
+                    LabelingAsset.market_variant == asset.market_variant,
+                    LabelingAsset.status == "current", LabelingAsset.id != target.id
                 )).all()
                 for row in previous:
                     row.status = "obsolete"
                     row.updated_by = user.id
             target.product_name = LABELING_PRODUCTS[asset.product_code]["name"]
-            target.market_scope = request.form.get("market_scope", "국내/해외향 공통").strip()
+            target.market_scope = MARKET_VARIANT_LABELS.get(asset.market_variant,
+                request.form.get("market_scope", "국내/해외향 공통")).strip()
+            target.market_variant = asset.market_variant
             target.valid_until_note = request.form.get("valid_until_note", "추후 개정 시").strip()
             target.control_no = request.form["control_no"].strip()
             target.revision = request.form["revision"].strip()
@@ -699,8 +707,23 @@ def register_routes(app):
             return redirect(url_for("labeling_detail", asset_id=target.id))
         history = db.session.scalars(db.select(LabelingAsset).where(
             LabelingAsset.standard == asset.standard, LabelingAsset.product_code == asset.product_code,
-            LabelingAsset.item_type == asset.item_type
+            LabelingAsset.item_type == asset.item_type,
+            LabelingAsset.market_variant == asset.market_variant
         ).order_by(LabelingAsset.created_at.desc())).all()
+        market_tabs = {}
+        if asset.item_type in SPLIT_MARKET_LABELING_TYPES:
+            for variant in ("domestic", "overseas"):
+                variant_asset = db.session.scalar(db.select(LabelingAsset).where(
+                    LabelingAsset.standard == asset.standard,
+                    LabelingAsset.product_code == asset.product_code,
+                    LabelingAsset.item_type == asset.item_type,
+                    LabelingAsset.market_variant == variant
+                ).order_by(
+                    case((LabelingAsset.status == "current", 0), (LabelingAsset.status == "review", 1), else_=2),
+                    LabelingAsset.updated_at.desc()
+                ))
+                if variant_asset:
+                    market_tabs[variant] = variant_asset
         image_url = None
         is_pdf = bool(asset.stored_name and asset.file_name and asset.file_name.lower().endswith(".pdf"))
         if asset.stored_name and asset.file_name and asset.file_name.lower().endswith((".jpg", ".jpeg", ".png")):
@@ -709,7 +732,8 @@ def register_routes(app):
             image_url = url_for("static", filename=f"{asset.item_type}-{asset.product_code}.svg")
         return render_template("labeling_detail.html", asset=asset, history=history,
             product=LABELING_PRODUCTS[asset.product_code], image_url=image_url, is_pdf=is_pdf,
-            status_labels=LABELING_STATUS_LABELS, icons=LABELING_ICONS)
+            status_labels=LABELING_STATUS_LABELS, icons=LABELING_ICONS,
+            market_tabs=market_tabs, market_variant_labels=MARKET_VARIANT_LABELS)
 
     @app.get("/labeling/<uuid:asset_id>/file")
     @login_required
