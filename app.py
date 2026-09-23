@@ -212,6 +212,7 @@ class LabelingAsset(TimestampMixin, db.Model):
     description = db.Column(db.Text, nullable=False, default="")
     file_name = db.Column(db.String(255))
     stored_name = db.Column(db.String(255))
+    image_hidden = db.Column(db.Boolean, nullable=False, default=False)
     created_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
     updated_by = db.Column(db.Uuid, db.ForeignKey("user.id"))
 
@@ -687,6 +688,7 @@ def register_routes(app):
                 stored = f"label_{uuid.uuid4().hex}_{original}"
                 upload.save(Path(app.config["UPLOAD_FOLDER"]) / stored)
                 target.file_name, target.stored_name = original, stored
+                target.image_hidden = False
             elif not is_placeholder:
                 target.file_name, target.stored_name = asset.file_name, asset.stored_name
             db.session.add(target)
@@ -703,7 +705,7 @@ def register_routes(app):
         is_pdf = bool(asset.stored_name and asset.file_name and asset.file_name.lower().endswith(".pdf"))
         if asset.stored_name and asset.file_name and asset.file_name.lower().endswith((".jpg", ".jpeg", ".png")):
             image_url = url_for("labeling_file", asset_id=asset.id)
-        elif not asset.stored_name and asset.item_type in {"vial", "blister"}:
+        elif not asset.image_hidden and not asset.stored_name and asset.item_type in {"vial", "blister"}:
             image_url = url_for("static", filename=f"{asset.item_type}-{asset.product_code}.svg")
         return render_template("labeling_detail.html", asset=asset, history=history,
             product=LABELING_PRODUCTS[asset.product_code], image_url=image_url, is_pdf=is_pdf,
@@ -717,6 +719,53 @@ def register_routes(app):
             abort(404)
         return send_from_directory(app.config["UPLOAD_FOLDER"], asset.stored_name,
             as_attachment=request.args.get("download") == "1", download_name=asset.file_name)
+
+    @app.post("/labeling/<uuid:asset_id>/image")
+    @roles_required("admin", "editor")
+    def update_labeling_image(asset_id):
+        asset = db.get_or_404(LabelingAsset, asset_id)
+        upload = request.files.get("file")
+        if not upload or not upload.filename:
+            flash("추가하거나 교체할 시안 파일을 선택하세요.", "error")
+            return redirect(url_for("labeling_detail", asset_id=asset.id))
+        extension = upload.filename.rsplit(".", 1)[-1].lower() if "." in upload.filename else ""
+        if extension not in {"jpg", "jpeg", "png", "pdf"}:
+            flash("시안은 JPG, PNG 또는 PDF 파일만 등록할 수 있습니다.", "error")
+            return redirect(url_for("labeling_detail", asset_id=asset.id))
+        original = secure_filename(upload.filename)
+        stored = f"label_{uuid.uuid4().hex}_{original}"
+        upload.save(Path(app.config["UPLOAD_FOLDER"]) / stored)
+        had_image = bool(asset.stored_name)
+        asset.file_name = original
+        asset.stored_name = stored
+        asset.image_hidden = False
+        asset.updated_by = current_user().id
+        audit("labeling_image_replaced" if had_image else "labeling_image_added",
+            "labeling_asset", asset.id, f"{asset.item_name} {asset.control_no}")
+        db.session.commit()
+        flash("시안 사진이 교체되었습니다." if had_image else "시안 사진이 추가되었습니다.", "success")
+        return redirect(url_for("labeling_detail", asset_id=asset.id))
+
+    @app.post("/labeling/<uuid:asset_id>/image/delete")
+    @roles_required("admin", "editor")
+    def delete_labeling_image(asset_id):
+        asset = db.get_or_404(LabelingAsset, asset_id)
+        old_stored = asset.stored_name
+        asset.file_name = None
+        asset.stored_name = None
+        asset.image_hidden = True
+        asset.updated_by = current_user().id
+        audit("labeling_image_deleted", "labeling_asset", asset.id, f"{asset.item_name} {asset.control_no}")
+        db.session.commit()
+        if old_stored:
+            other_count = db.session.scalar(db.select(func.count(LabelingAsset.id)).where(
+                LabelingAsset.stored_name == old_stored, LabelingAsset.id != asset.id
+            ))
+            path = Path(app.config["UPLOAD_FOLDER"]) / old_stored
+            if not other_count and path.exists():
+                path.unlink()
+        flash("시안 사진이 삭제되었습니다. 개정이력은 유지됩니다.", "success")
+        return redirect(url_for("labeling_detail", asset_id=asset.id))
 
     @app.route("/documents/<category>", defaults={"section": "records"}, methods=["GET", "POST"])
     @app.route("/documents/<category>/<section>", methods=["GET", "POST"])
