@@ -1,6 +1,15 @@
 {% extends 'base.html' %}{% block content %}
 <header class="complaint-head"><div><p class="eyebrow">GMP 제품/부품별 정보 · {{ product.name }}</p><h2>{{ asset.item_name }}</h2><p>{{ product.name }} ({{ product.korean }})의 최신 관리번호와 시안을 확인합니다.</p></div><a class="button ghost" href="{{ url_for('labeling_master', product=asset.product_code) }}">← 제품 부품목록</a></header>
 
+{% if market_tabs %}
+<nav class="label-market-tabs" aria-label="{{ asset.item_name }} 국내외 구분">
+  {% for variant in ['domestic','overseas'] %}
+    {% set tab_asset = market_tabs.get(variant) %}
+    {% if tab_asset %}<a class="{% if asset.market_variant==variant %}active{% endif %} {{ variant }}" href="{{ url_for('labeling_detail', asset_id=tab_asset.id) }}"><span>{{ 'KR' if variant=='domestic' else 'GLOBAL' }}</span><strong>{{ market_variant_labels[variant] }}</strong><small>{{ '국내 허가·판매용 시안' if variant=='domestic' else '해외 허가·판매용 시안' }}</small></a>{% endif %}
+  {% endfor %}
+</nav>
+{% endif %}
+
 <section class="sample-detail-layout reference-detail-layout">
   <div class="card sample-stage reference-sample-stage">
     {% if image_url %}
@@ -18,7 +27,7 @@
       <div>
         <span class="reference-overline">CURRENT MASTER</span>
         <strong>{{ product.name }}</strong>
-        <small>{{ product.korean }} · {{ asset.item_name }}</small>
+        <small>{{ product.korean }} · {{ asset.item_name }}{% if asset.market_variant!='common' %} · {{ market_variant_labels[asset.market_variant] }}{% endif %}</small>
       </div>
       <span class="status status-{{ asset.status }}">{{ status_labels[asset.status] }}</span>
     </div>
@@ -34,7 +43,7 @@
       </div>
       <div class="reference-summary-row">
         <span>적용범위</span>
-        <strong>{{ asset.market_scope }}</strong>
+        <strong>{{ market_variant_labels.get(asset.market_variant, asset.market_scope) }}</strong>
       </div>
       <div class="reference-summary-row">
         <span>개정번호</span>
@@ -79,7 +88,7 @@
   <label>개정번호<input name="revision" value="{% if asset.revision=='-' %}0{% else %}{{ asset.revision }}{% endif %}" required></label>
   <label>적용일자<input type="date" name="effective_date" value="{{ asset.effective_date or '' }}"></label>
   <label>상태<select name="status"><option value="review">검토 중<[REDACTED]><option value="current" selected>최신본<[REDACTED]></select></label>
-  <label>적용 범위<input name="market_scope" value="{{ asset.market_scope }}"></label>
+  <label>적용 범위<input name="market_scope" value="{{ market_variant_labels.get(asset.market_variant, asset.market_scope) }}" readonly></label>
   <label>사용기한<input name="valid_until_note" value="{{ asset.valid_until_note }}"></label>
   <label class="wide">새 개정 시안<input type="file" name="file" accept=".jpg,.jpeg,.png,.pdf"></label>
   <label class="wide">설명·변경사항<textarea name="description">{{ asset.description if asset.status!='preparing' else '' }}</textarea></label>
@@ -88,7 +97,7 @@
 {% endif %}
 
 <section class="card" id="revision-history">
-  <div class="card-title"><div><p class="eyebrow">REVISION HISTORY</p><h3>{{ product.name }} {{ asset.item_name }} 개정이력</h3></div><span>{{ history|length }}건</span></div>
+  <div class="card-title"><div><p class="eyebrow">REVISION HISTORY</p><h3>{{ product.name }} {{ asset.item_name }}{% if asset.market_variant!='common' %} · {{ market_variant_labels[asset.market_variant] }}{% endif %} 개정이력</h3></div><span>{{ history|length }}건</span></div>
   <div class="table-wrap"><table><thead><tr><th>개정</th><th>관리번호</th><th>적용일자</th><th>적용 범위</th><th>상태</th><th>시안</th></tr></thead><tbody>
   {% for h in history %}<tr {% if h.id==asset.id %}class="current-row"{% endif %}><td>{{ h.revision }}</td><td>{{ h.control_no or '미등록' }}</td><td>{{ h.effective_date or '-' }}</td><td>{{ h.market_scope }}</td><td><span class="status status-{{ h.status }}">{{ status_labels[h.status] }}</span></td><td><a href="{{ url_for('labeling_detail', asset_id=h.id) }}">보기</a></td></tr>{% endfor %}
   </tbody></table></div>
