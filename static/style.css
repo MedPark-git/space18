@@ -89,3 +89,23 @@
 .side-revision-form textarea{min-height:68px}
 @media(max-width:1180px){.revised-detail-layout{grid-template-columns:1fr}.revised-sample-meta{width:100%}}
 @media(max-width:620px){.no-wrap-info{grid-template-columns:1fr}.side-revision-form .grid-form{grid-template-columns:1fr}.side-revision-form .wide{grid-column:auto}}
+
+
+/* Labeling reference panel based on supplied layout */
+.reference-detail-layout{grid-template-columns:minmax(480px,1fr) 330px;align-items:stretch}
+.reference-sample-stage{min-height:620px;height:620px}
+.reference-sample-stage .image-zoom,.reference-sample-stage .image-zoom img{height:100%;min-height:0}
+.reference-meta-panel{min-height:620px;height:620px;display:flex;flex-direction:column;padding:18px 16px;overflow:hidden}
+.reference-product-badge{align-self:flex-start;padding:7px 10px;border-radius:7px;background:#176b9b;color:#fff;font-size:12px;font-weight:900;white-space:nowrap}
+.reference-fields{display:grid;margin-top:8px}
+.reference-field{padding:10px 0 14px;border-bottom:2px solid #e4e7ec}
+.reference-field>span{display:inline-block;padding:5px 12px;border:1px solid #176b9b;border-radius:6px;background:#eaf6df;color:#009b4c;font-size:16px;line-height:1.2;white-space:nowrap}
+.reference-field>strong{display:block;margin-top:13px;text-align:center;color:#101828;font-size:16px;line-height:1.35;white-space:nowrap}
+.reference-actions{display:flex;flex-wrap:nowrap;justify-content:center;gap:6px;margin-top:auto;padding-top:18px;border-top:2px solid #e4e7ec}
+.reference-actions form{margin:0}
+.reference-actions button,.quick-photo-form label{display:inline-block;width:68px;padding:8px 6px;border:1px solid #176b9b;border-radius:6px;background:#8eb9e6;color:#fff;text-align:center;font:inherit;font-size:15px;line-height:1.2;white-space:nowrap;cursor:pointer}
+.quick-photo-form input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.reference-actions button:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:1050px){.reference-detail-layout{grid-template-columns:minmax(420px,1fr) 310px}.reference-sample-stage,.reference-meta-panel{height:590px;min-height:590px}}
+@media(max-width:850px){.reference-detail-layout{grid-template-columns:1fr}.reference-sample-stage{height:500px;min-height:500px}.reference-meta-panel{height:auto;min-height:560px}.reference-fields{grid-template-columns:1fr 1fr;gap:0 14px}.reference-actions{margin-top:22px}}
+@media(max-width:520px){.reference-fields{grid-template-columns:1fr}.reference-field>strong{font-size:15px}.reference-actions{overflow-x:auto;justify-content:flex-start}}
