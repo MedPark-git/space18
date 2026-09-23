@@ -111,8 +111,12 @@ def create_app(test_config=None):
 def run_migrations_once():
     lock_id = 93827164
     with db.engine.connect() as lock_connection:
+        locked = lock_connection.scalar(
+            text("SELECT pg_try_advisory_lock(:lock_id)"), {"lock_id": lock_id}
+        )
+        if not locked:
+            return
         try:
-            lock_connection.execute(text("SELECT pg_advisory_lock(:lock_id)"), {"lock_id": lock_id})
             upgrade(directory="migrations")
         finally:
             lock_connection.execute(text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": lock_id})
@@ -1220,25 +1224,4 @@ def register_routes(app):
     @roles_required("admin")
     def reset_password(user_id):
         user = db.get_or_404(User, user_id)
-        temporary = request.form.get("temporary_password", "")
-        if len(temporary) < 10:
-            flash("임시 비밀번호는 10자 이상이어야 합니다.", "error")
-        else:
-            user.set_password(temporary); user.must_change_password = True
-            audit("temporary_password_issued", "user", user.id)
-            db.session.commit(); flash("임시 비밀번호가 발급되었습니다.", "success")
-        return redirect(url_for("users"))
-
-    @app.route("/admin/settings", methods=["GET", "POST"])
-    @roles_required("admin")
-    def settings():
-        if request.method == "POST":
-            for key in ("document_manager", "retention_note"):
-                row = db.session.scalar(db.select(SystemSetting).where(SystemSetting.key == key))
-                if not row:
-                    row = SystemSetting(key=key, updated_by=current_user().id); db.session.add(row)
-                row.value = request.form.get(key, "").strip(); row.updated_by = current_user().id
-            audit("settings_updated", "system")
-            db.session.commit(); flash("설정이 저장되었습니다.", "success")
-            return redirect(url_for("settings"))
-        values = {r.key:r.value for 
+        te
