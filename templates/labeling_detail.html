@@ -98,8 +98,8 @@
 
 <section class="card" id="revision-history">
   <div class="card-title"><div><p class="eyebrow">REVISION HISTORY</p><h3>{{ product.name }} {{ asset.item_name }}{% if asset.market_variant!='common' %} · {{ market_variant_labels[asset.market_variant] }}{% endif %} 개정이력</h3></div><span>{{ history|length }}건</span></div>
-  <div class="table-wrap"><table><thead><tr><th>개정</th><th>관리번호</th><th>적용일자</th><th>적용 범위</th><th>상태</th><th>시안</th></tr></thead><tbody>
-  {% for h in history %}<tr {% if h.id==asset.id %}class="current-row"{% endif %}><td>{{ h.revision }}</td><td>{{ h.control_no or '미등록' }}</td><td>{{ h.effective_date or '-' }}</td><td>{{ h.market_scope }}</td><td><span class="status status-{{ h.status }}">{{ status_labels[h.status] }}</span></td><td><a href="{{ url_for('labeling_detail', asset_id=h.id) }}">보기</a></td></tr>{% endfor %}
+  <div class="table-wrap"><table><thead><tr><th>개정</th><th>관리번호</th><th>적용일자</th><th>적용 범위</th><th>상태</th><th>시안</th><th>관리</th></tr></thead><tbody>
+  {% for h in history %}<tr {% if h.id==asset.id %}class="current-row"{% endif %}><td>{{ h.revision }}</td><td>{{ h.control_no or '미등록' }}</td><td>{{ h.effective_date or '-' }}</td><td>{{ h.market_scope }}</td><td><span class="status status-{{ h.status }}">{{ status_labels[h.status] }}</span></td><td><a href="{{ url_for('labeling_detail', asset_id=h.id) }}">보기</a></td><td>{% if current_user.role in ['admin','editor'] and h.status=='obsolete' %}<form method="post" action="{{ url_for('delete_labeling_revision', asset_id=h.id) }}" class="inline-delete-form" onsubmit="return confirm('이 이전 개정이력을 삭제하시겠습니까? 삭제 후 복구할 수 없습니다.')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="history-delete-button">삭제</button></form>{% else %}<span class="protected-history">보존</span>{% endif %}</td></tr>{% endfor %}
   </tbody></table></div>
 </section>
 {% endblock %}
