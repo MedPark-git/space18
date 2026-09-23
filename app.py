@@ -102,9 +102,8 @@ def create_app(test_config=None):
 
     with app.app_context():
         Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
-        if not app.config.get("TESTING"):
-            run_migrations_once()
-            bootstrap_admin()
+        # Migrations are applied during controlled deployments. Avoid blocking
+        # application startup while the database proxy is still becoming ready.
     return app
 
 
