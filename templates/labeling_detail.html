@@ -13,31 +13,57 @@
     {% endif %}
   </div>
 
-  <aside class="card reference-meta-panel">
-    <div class="reference-product-badge">{{ product.badge }} · {{ product.name }}</div>
-    <div class="reference-fields">
-      <div class="reference-field"><span>관리번호</span><strong>{{ asset.control_no or '미등록' }}</strong></div>
-      <div class="reference-field"><span>적용일자</span><strong>{{ asset.effective_date or '-' }}</strong></div>
-      <div class="reference-field"><span>적용범위</span><strong>{{ asset.market_scope }}</strong></div>
-      <div class="reference-field"><span>상태</span><strong>{{ status_labels[asset.status] }}</strong></div>
+  <aside class="card reference-meta-panel polished-reference-panel">
+    <div class="reference-panel-head">
+      <div>
+        <span class="reference-overline">CURRENT MASTER</span>
+        <strong>{{ product.name }}</strong>
+        <small>{{ product.korean }} · {{ asset.item_name }}</small>
+      </div>
+      <span class="status status-{{ asset.status }}">{{ status_labels[asset.status] }}</span>
     </div>
 
+    <div class="reference-summary">
+      <div class="reference-summary-row primary">
+        <span>관리번호</span>
+        <strong>{{ asset.control_no or '미등록' }}</strong>
+      </div>
+      <div class="reference-summary-row">
+        <span>적용일자</span>
+        <strong>{{ asset.effective_date or '-' }}</strong>
+      </div>
+      <div class="reference-summary-row">
+        <span>적용범위</span>
+        <strong>{{ asset.market_scope }}</strong>
+      </div>
+      <div class="reference-summary-row">
+        <span>개정번호</span>
+        <strong>Rev. {{ asset.revision }}</strong>
+      </div>
+    </div>
+
+    {% if asset.description %}<p class="reference-note">{{ asset.description }}</p>{% endif %}
+
     {% if current_user.role in ['admin','editor'] %}
-    <div class="reference-actions">
-      <form method="post" enctype="multipart/form-data" action="{{ url_for('update_labeling_image', asset_id=asset.id) }}" class="quick-photo-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input id="photo-add-{{ asset.id }}" type="file" name="file" accept=".jpg,.jpeg,.png,.pdf" required onchange="this.form.submit()">
-        <label for="photo-add-{{ asset.id }}">추가</label>
-      </form>
-      <form method="post" enctype="multipart/form-data" action="{{ url_for('update_labeling_image', asset_id=asset.id) }}" class="quick-photo-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input id="photo-edit-{{ asset.id }}" type="file" name="file" accept=".jpg,.jpeg,.png,.pdf" required onchange="this.form.submit()">
-        <label for="photo-edit-{{ asset.id }}">수정</label>
-      </form>
-      <form method="post" action="{{ url_for('delete_labeling_image', asset_id=asset.id) }}" onsubmit="return confirm('현재 시안 사진을 삭제하시겠습니까? 개정이력은 유지됩니다.')">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" {% if not image_url and not is_pdf %}disabled{% endif %}>삭제</button>
-      </form>
+    <div class="reference-action-area">
+      <p>시안 관리 <small>JPG·PNG·PDF</small></p>
+      <div class="reference-actions">
+        <form method="post" enctype="multipart/form-data" action="{{ url_for('update_labeling_image', asset_id=asset.id) }}" class="quick-photo-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input id="photo-add-{{ asset.id }}" type="file" name="file" accept=".jpg,.jpeg,.png,.pdf" required onchange="this.form.submit()">
+          <label for="photo-add-{{ asset.id }}" title="시안 사진 추가">＋ 추가</label>
+        </form>
+        <form method="post" enctype="multipart/form-data" action="{{ url_for('update_labeling_image', asset_id=asset.id) }}" class="quick-photo-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input id="photo-edit-{{ asset.id }}" type="file" name="file" accept=".jpg,.jpeg,.png,.pdf" required onchange="this.form.submit()">
+          <label for="photo-edit-{{ asset.id }}" title="현재 시안 사진 교체">✎ 수정</label>
+        </form>
+        <form method="post" action="{{ url_for('delete_labeling_image', asset_id=asset.id) }}" onsubmit="return confirm('현재 시안 사진을 삭제하시겠습니까? 개정이력은 유지됩니다.')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="delete-photo-button" {% if not image_url and not is_pdf %}disabled{% endif %} title="현재 시안 사진 삭제">삭제</button>
+        </form>
+      </div>
+      {% if asset.stored_name %}<a class="panel-download" download href="{{ url_for('labeling_file', asset_id=asset.id, download=1) }}">원본 파일 내려받기</a>{% endif %}
     </div>
     {% endif %}
   </aside>
@@ -52,7 +78,7 @@
   <label>관리번호<input name="control_no" value="{{ asset.control_no }}" required></label>
   <label>개정번호<input name="revision" value="{% if asset.revision=='-' %}0{% else %}{{ asset.revision }}{% endif %}" required></label>
   <label>적용일자<input type="date" name="effective_date" value="{{ asset.effective_date or '' }}"></label>
-  <label>상태<select name="status"><option value="review">검토 중</option><option value="current" selected>최신본</option></select></label>
+  <label>상태<select name="status"><option value="review">검토 중<[REDACTED]><option value="current" selected>최신본<[REDACTED]></select></label>
   <label>적용 범위<input name="market_scope" value="{{ asset.market_scope }}"></label>
   <label>사용기한<input name="valid_until_note" value="{{ asset.valid_until_note }}"></label>
   <label class="wide">새 개정 시안<input type="file" name="file" accept=".jpg,.jpeg,.png,.pdf"></label>
