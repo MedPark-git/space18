@@ -63,3 +63,29 @@
 #revision-history{scroll-margin-top:20px}
 @media(max-width:1050px){.sample-detail-layout{grid-template-columns:1fr}.sample-meta{position:static}.current-master-info{grid-template-columns:1fr 1fr}}
 @media(max-width:600px){.current-master-info{grid-template-columns:1fr}.current-master-info .key-row{grid-column:auto}.image-upload-form{grid-template-columns:1fr}}
+
+
+/* Labeling detail layout correction: revision form on right, no text wrapping */
+.revised-detail-layout{grid-template-columns:minmax(520px,1fr) minmax(480px,520px);align-items:stretch}
+.revised-sample-meta{min-width:0}
+.no-wrap-info{grid-template-columns:1fr 1fr}
+.no-wrap-info>div{display:grid;grid-template-columns:max-content minmax(0,1fr);column-gap:10px;align-items:center}
+.no-wrap-info dt,.no-wrap-info dd,.no-wrap-info .control-number{white-space:nowrap}
+.no-wrap-info dd{text-align:right;font-size:14px;overflow:visible}
+.no-wrap-info .key-row{display:grid;grid-template-columns:max-content minmax(0,1fr)}
+.compact-image-manager{margin-top:14px}
+.photo-action-row{display:flex;align-items:stretch;gap:7px;flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px}
+.photo-action-row form{margin:0;flex:0 0 auto}
+.image-upload-inline{display:flex;align-items:stretch;gap:7px;flex-wrap:nowrap}
+.image-upload-inline button,.photo-action-row button{white-space:nowrap;height:42px}
+.inline-picker{width:150px;min-width:150px;height:42px;margin:0}
+.inline-picker span{padding:9px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.original-download{display:inline-block;margin-top:7px;color:#176b9b;font-size:13px;font-weight:700}
+.side-revision-form{margin:18px 0 0;padding-top:16px;border-top:1px solid var(--line)}
+.side-revision-form summary{margin-bottom:12px}
+.side-revision-form .grid-form{gap:8px 10px}
+.side-revision-form label{margin-bottom:5px;white-space:nowrap;font-size:13px}
+.side-revision-form input,.side-revision-form select,.side-revision-form textarea{min-width:0;padding:8px}
+.side-revision-form textarea{min-height:68px}
+@media(max-width:1180px){.revised-detail-layout{grid-template-columns:1fr}.revised-sample-meta{width:100%}}
+@media(max-width:620px){.no-wrap-info{grid-template-columns:1fr}.side-revision-form .grid-form{grid-template-columns:1fr}.side-revision-form .wide{grid-column:auto}}
