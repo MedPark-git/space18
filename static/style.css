@@ -162,3 +162,13 @@
 .history-delete-button{padding:5px 9px;border:1px solid #fda29b;border-radius:6px;background:#fff;color:#b42318;font-size:12px;font-weight:800}
 .history-delete-button:hover{background:#fff1f0}
 .protected-history{color:#98a2b3;font-size:12px;white-space:nowrap}
+
+
+/* Complaint review editing */
+.complaint-head-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.review-edit-button{background:#b54708}
+.review-edit-notice{display:flex;align-items:center;gap:12px;margin:18px 0 10px;padding:13px 16px;border:1px solid #fedf89;border-left:5px solid #f79009;border-radius:9px;background:#fffaeb;color:#7a2e0e}
+.review-edit-notice span{color:#93370d}
+.complaint-edit-card{scroll-margin-top:20px;border-top:4px solid #f79009}
+.table-edit-link{display:inline-block;padding:5px 9px;border-radius:6px;background:#fff3e8;color:#b54708;font-weight:800;text-decoration:none}
+@media(max-width:600px){.complaint-head-actions{width:100%}.complaint-head-actions .button{flex:1;text-align:center}.review-edit-notice{align-items:flex-start;flex-direction:column;gap:3px}}
