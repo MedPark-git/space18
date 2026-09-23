@@ -104,6 +104,7 @@ def create_app(test_config=None):
         Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
         # Migrations are applied during controlled deployments. Avoid blocking
         # application startup while the database proxy is still becoming ready.
+        pass
     return app
 
 
@@ -1218,6 +1219,4 @@ def register_routes(app):
         user.role = role
         audit("user_updated", "user", user.id, f"role={user.role}")
         db.session.commit(); flash("사용자 정보가 수정되었습니다.", "success")
-        return redirect(url_for("users"))
-
-    @app.post("/admin/users/<uuid:user_id>/reset-pa
+        retu
