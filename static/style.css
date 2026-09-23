@@ -109,3 +109,31 @@
 @media(max-width:1050px){.reference-detail-layout{grid-template-columns:minmax(420px,1fr) 310px}.reference-sample-stage,.reference-meta-panel{height:590px;min-height:590px}}
 @media(max-width:850px){.reference-detail-layout{grid-template-columns:1fr}.reference-sample-stage{height:500px;min-height:500px}.reference-meta-panel{height:auto;min-height:560px}.reference-fields{grid-template-columns:1fr 1fr;gap:0 14px}.reference-actions{margin-top:22px}}
 @media(max-width:520px){.reference-fields{grid-template-columns:1fr}.reference-field>strong{font-size:15px}.reference-actions{overflow-x:auto;justify-content:flex-start}}
+
+
+/* Final labeling layout: keep master card fixed on the right */
+.reference-detail-layout{display:grid!important;grid-template-columns:minmax(0,1fr) 340px!important;align-items:stretch!important;gap:16px!important}
+.reference-sample-stage{grid-column:1!important;grid-row:1!important;height:590px!important;min-height:590px!important}
+.polished-reference-panel{grid-column:2!important;grid-row:1!important;width:340px!important;height:590px!important;min-height:590px!important;padding:0!important;display:flex!important;flex-direction:column!important;overflow:hidden!important;border-top:4px solid #176b9b!important;background:linear-gradient(180deg,#fff 0%,#fbfdff 100%)!important}
+.reference-panel-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:18px 18px 15px;border-bottom:1px solid #e4e7ec;background:#f7fbfd}
+.reference-panel-head>div{display:grid;gap:2px;min-width:0}
+.reference-overline{color:#176b9b;font-size:11px;font-weight:900;letter-spacing:.08em;white-space:nowrap}
+.reference-panel-head strong{font-size:18px;color:#123a5a;white-space:nowrap}
+.reference-panel-head small{color:#667085;font-size:12px;white-space:nowrap}
+.reference-panel-head>.status{flex:0 0 auto;white-space:nowrap}
+.reference-summary{padding:4px 18px}
+.reference-summary-row{display:grid;grid-template-columns:82px minmax(0,1fr);align-items:center;gap:10px;min-height:67px;border-bottom:1px solid #e4e7ec}
+.reference-summary-row>span{color:#475467;font-size:13px;font-weight:700;white-space:nowrap}
+.reference-summary-row>strong{text-align:right;color:#101828;font-size:14px;white-space:nowrap}
+.reference-summary-row.primary>strong{color:#176b9b;font-size:16px;font-weight:900}
+.reference-note{margin:12px 18px 0;padding:10px 12px;border-radius:8px;background:#f2f4f7;color:#475467;font-size:13px;line-height:1.45;max-height:64px;overflow:auto}
+.reference-action-area{margin-top:auto;padding:15px 18px 18px;border-top:1px solid #e4e7ec;background:#fff}
+.reference-action-area>p{display:flex;justify-content:space-between;align-items:center;margin:0 0 10px;color:#344054;font-weight:800}
+.reference-action-area>p small{color:#98a2b3;font-weight:500}
+.reference-action-area .reference-actions{display:grid!important;grid-template-columns:repeat(3,1fr)!important;gap:7px!important;margin:0!important;padding:0!important;border:0!important;overflow:visible!important}
+.reference-action-area .reference-actions form{min-width:0}
+.reference-action-area .reference-actions button,.reference-action-area .quick-photo-form label{width:100%!important;height:38px!important;padding:8px 5px!important;border-radius:7px!important;background:#176b9b!important;border:1px solid #176b9b!important;color:#fff!important;font-size:13px!important;font-weight:800!important;line-height:20px!important}
+.reference-action-area .reference-actions .delete-photo-button{background:#fff!important;color:#b42318!important;border-color:#fda29b!important}
+.reference-action-area .reference-actions button:disabled{opacity:.4!important}
+.panel-download{display:block;margin-top:9px;text-align:center;color:#176b9b;font-size:12px;font-weight:700;text-decoration:none}
+@media(max-width:700px){.reference-detail-layout{grid-template-columns:1fr!important}.reference-sample-stage{grid-column:1!important;grid-row:1!important;height:470px!important;min-height:470px!important}.polished-reference-panel{grid-column:1!important;grid-row:2!important;width:100%!important;height:auto!important;min-height:500px!important}.reference-summary-row{grid-template-columns:90px 1fr}}
