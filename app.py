@@ -72,7 +72,7 @@ def create_app(test_config=None):
     app.config.update(
         SECRET_KEY=os.getenv("SECRET_KEY") or ("test-secret" if test_config else None),
         SQLALCHEMY_DATABASE_URI=database_uri() if not test_config else test_config["SQLALCHEMY_DATABASE_URI"],
-        SQLALCHEMY_ENGINE_OPTIONS={"pool_pre_ping": True, "pool_recycle": 300, "pool_size": 5, "max_overflow": 5, "connect_args": {"connect_timeout": 5}},
+        SQLALCHEMY_ENGINE_OPTIONS={"pool_pre_ping": True, "pool_recycle": 300, "pool_size": 5, "max_overflow": 5},
         SQLALCHEMY_TRACK_MODIFICATIONS=False,
         PERMANENT_SESSION_LIFETIME=timedelta(minutes=60),
         SESSION_COOKIE_HTTPONLY=True,
@@ -102,21 +102,17 @@ def create_app(test_config=None):
 
     with app.app_context():
         Path(app.config["UPLOAD_FOLDER"]).mkdir(parents=True, exist_ok=True)
-        # Migrations are applied during controlled deployments. Avoid blocking
-        # application startup while the database proxy is still becoming ready.
-        pass
+        if not app.config.get("TESTING"):
+            run_migrations_once()
+            bootstrap_admin()
     return app
 
 
 def run_migrations_once():
     lock_id = 93827164
     with db.engine.connect() as lock_connection:
-        locked = lock_connection.scalar(
-            text("SELECT pg_try_advisory_lock(:lock_id)"), {"lock_id": lock_id}
-        )
-        if not locked:
-            return
         try:
+            lock_connection.execute(text("SELECT pg_advisory_lock(:lock_id)"), {"lock_id": lock_id})
             upgrade(directory="migrations")
         finally:
             lock_connection.execute(text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": lock_id})
@@ -425,8 +421,7 @@ def register_routes(app):
             return jsonify(result), 200
         except SQLAlchemyError:
             db.session.rollback()
-            result["status"] = "degraded"
-            return jsonify(result), 200
+            return jsonify(result), 503
 
     @app.route("/login", methods=["GET", "POST"])
     def login():
@@ -1219,4 +1214,78 @@ def register_routes(app):
         user.role = role
         audit("user_updated", "user", user.id, f"role={user.role}")
         db.session.commit(); flash("사용자 정보가 수정되었습니다.", "success")
-        retu
+        return redirect(url_for("users"))
+
+    @app.post("/admin/users/<uuid:user_id>/reset-password")
+    @roles_required("admin")
+    def reset_password(user_id):
+        user = db.get_or_404(User, user_id)
+        temporary = request.form.get("temporary_password", "")
+        if len(temporary) < 10:
+            flash("임시 비밀번호는 10자 이상이어야 합니다.", "error")
+        else:
+            user.set_password(temporary); user.must_change_password = True
+            audit("temporary_password_issued", "user", user.id)
+            db.session.commit(); flash("임시 비밀번호가 발급되었습니다.", "success")
+        return redirect(url_for("users"))
+
+    @app.route("/admin/settings", methods=["GET", "POST"])
+    @roles_required("admin")
+    def settings():
+        if request.method == "POST":
+            for key in ("document_manager", "retention_note"):
+                row = db.session.scalar(db.select(SystemSetting).where(SystemSetting.key == key))
+                if not row:
+                    row = SystemSetting(key=key, updated_by=current_user().id); db.session.add(row)
+                row.value = request.form.get(key, "").strip(); row.updated_by = current_user().id
+            audit("settings_updated", "system")
+            db.session.commit(); flash("설정이 저장되었습니다.", "success")
+            return redirect(url_for("settings"))
+        values = {r.key:r.value for r in db.session.scalars(db.select(SystemSetting)).all()}
+        return render_template("settings.html", values=values)
+
+    @app.get("/admin/audit")
+    @roles_required("admin")
+    def audit_logs():
+        logs = db.session.scalars(db.select(AuditLog).order_by(AuditLog.created_at.desc()).limit(500)).all()
+        return render_template("audit.html", logs=logs)
+
+
+def register_context(app):
+    @app.context_processor
+    def inject_globals():
+        return {"current_user": current_user(), "to_kst": lambda dt: dt.astimezone(KST).strftime("%Y-%m-%d %H:%M") if dt else "-", "site_name": "서울 3-site 기술부(품질)", "section_label": lambda category, slug: dict(WORK_SECTIONS.get(category, [])).get(slug, slug)}
+
+
+def register_errors(app):
+    @app.teardown_request
+    def rollback_on_error(error):
+        if error:
+            db.session.rollback()
+
+    for code, message in [(403, "접근 권한이 없습니다."), (404, "페이지를 찾을 수 없습니다."), (500, "시스템 오류가 발생했습니다.")]:
+        def handler(error, code=code, message=message):
+            if code == 500:
+                db.session.rollback()
+            return render_template("error.html", code=code, message=message), code
+        app.register_error_handler(code, handler)
+
+
+try:
+    app = create_app()
+except RuntimeError as startup_error:
+    app = Flask(__name__)
+    app.config["STARTUP_ERROR"] = str(startup_error)
+
+    @app.get("/health")
+    def unavailable_health():
+        return jsonify(status="error", database=False, database_backend="postgresql", database_writable=False, application_ready=False), 503
+
+    @app.route("/", defaults={"path": ""})
+    @app.route("/<path:path>")
+    def unavailable(path):
+        return "서비스 준비가 완료되지 않았습니다. PostgreSQL 및 필수 환경설정을 확인하세요.", 503
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8000")), debug=False)
