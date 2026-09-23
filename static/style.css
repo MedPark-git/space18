@@ -137,3 +137,7 @@
 .reference-action-area .reference-actions button:disabled{opacity:.4!important}
 .panel-download{display:block;margin-top:9px;text-align:center;color:#176b9b;font-size:12px;font-weight:700;text-decoration:none}
 @media(max-width:700px){.reference-detail-layout{grid-template-columns:1fr!important}.reference-sample-stage{grid-column:1!important;grid-row:1!important;height:470px!important;min-height:470px!important}.polished-reference-panel{grid-column:1!important;grid-row:2!important;width:100%!important;height:auto!important;min-height:500px!important}.reference-summary-row{grid-template-columns:90px 1fr}}
+
+
+/* Prevent the labeling information card from inheriting fixed sidebar positioning */
+.reference-detail-layout>.polished-reference-panel{position:relative!important;inset:auto!important;float:none!important;margin:0!important;z-index:auto!important}
