@@ -735,6 +735,42 @@ def register_routes(app):
             status_labels=LABELING_STATUS_LABELS, icons=LABELING_ICONS,
             market_tabs=market_tabs, market_variant_labels=MARKET_VARIANT_LABELS)
 
+    @app.post("/labeling/<uuid:asset_id>/delete")
+    @roles_required("admin", "editor")
+    def delete_labeling_revision(asset_id):
+        asset = db.get_or_404(LabelingAsset, asset_id)
+        if asset.status != "obsolete":
+            flash("최신본과 검토 중인 개정은 삭제할 수 없습니다. 이전본만 삭제할 수 있습니다.", "error")
+            return redirect(url_for("labeling_detail", asset_id=asset.id))
+        redirect_asset = db.session.scalar(db.select(LabelingAsset).where(
+            LabelingAsset.standard == asset.standard,
+            LabelingAsset.product_code == asset.product_code,
+            LabelingAsset.item_type == asset.item_type,
+            LabelingAsset.market_variant == asset.market_variant,
+            LabelingAsset.id != asset.id
+        ).order_by(
+            case((LabelingAsset.status == "current", 0), (LabelingAsset.status == "review", 1), else_=2),
+            LabelingAsset.updated_at.desc()
+        ))
+        old_stored = asset.stored_name
+        shared_count = 0
+        if old_stored:
+            shared_count = db.session.scalar(db.select(func.count(LabelingAsset.id)).where(
+                LabelingAsset.stored_name == old_stored, LabelingAsset.id != asset.id
+            ))
+        audit("labeling_revision_deleted", "labeling_asset", asset.id,
+            f"{asset.item_name} {asset.control_no} Rev.{asset.revision}")
+        db.session.delete(asset)
+        db.session.commit()
+        if old_stored and not shared_count:
+            path = Path(app.config["UPLOAD_FOLDER"]) / old_stored
+            if path.exists():
+                path.unlink()
+        flash("선택한 이전 개정이력이 삭제되었습니다.", "success")
+        if redirect_asset:
+            return redirect(url_for("labeling_detail", asset_id=redirect_asset.id))
+        return redirect(url_for("labeling_master", product=asset.product_code))
+
     @app.get("/labeling/<uuid:asset_id>/file")
     @login_required
     def labeling_file(asset_id):
