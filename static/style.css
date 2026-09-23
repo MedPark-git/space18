@@ -172,3 +172,24 @@
 .complaint-edit-card{scroll-margin-top:20px;border-top:4px solid #f79009}
 .table-edit-link{display:inline-block;padding:5px 9px;border-radius:6px;background:#fff3e8;color:#b54708;font-weight:800;text-decoration:none}
 @media(max-width:600px){.complaint-head-actions{width:100%}.complaint-head-actions .button{flex:1;text-align:center}.review-edit-notice{align-items:flex-start;flex-direction:column;gap:3px}}
+
+
+/* Annual VMP validation management */
+.vmp-year-tabs{display:flex;gap:8px;overflow:auto;margin:18px 0;padding-bottom:5px}
+.vmp-year-tabs a{display:grid;min-width:110px;padding:10px 15px;border:1px solid var(--line);border-radius:10px;background:#fff;color:#475467;text-decoration:none}
+.vmp-year-tabs a strong{font-size:20px}.vmp-year-tabs a span{font-size:12px}
+.vmp-year-tabs a.active{border-color:#176b9b;background:#eaf5fb;color:#123a5a}
+.vmp-hero{display:flex;justify-content:space-between;align-items:center;gap:24px;padding:22px 26px;border-radius:15px;background:linear-gradient(135deg,#123a5a,#176b9b);color:#fff}
+.vmp-hero>div:first-child{display:flex;align-items:center;gap:18px}.vmp-year{display:grid;place-items:center;width:76px;height:76px;border-radius:17px;background:#ffffff1c;font-size:23px;font-weight:900}
+.vmp-state{display:inline-block;padding:4px 8px;border-radius:999px;background:#dcfae6;color:#067647;font-size:12px;font-weight:800}
+.vmp-hero h3,.vmp-hero p{margin:5px 0}.vmp-edit-link{display:inline-block;margin-top:5px;color:#fff;text-decoration:underline}
+.vmp-progress{min-width:190px;text-align:right}.vmp-progress strong{display:block;font-size:34px}.vmp-progress span{opacity:.85}.vmp-progress>div{height:8px;margin-top:8px;border-radius:999px;background:#ffffff33;overflow:hidden}.vmp-progress i{display:block;height:100%;background:#6ce9a6}
+.validation-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0}
+.validation-metrics>div{padding:15px 17px;border:1px solid var(--line);border-left:5px solid #667085;border-radius:11px;background:#fff}.validation-metrics span{display:block;color:#667085;font-weight:700}.validation-metrics strong{font-size:28px}.validation-metrics .blue{border-left-color:#176b9b}.validation-metrics .green{border-left-color:#12b76a}.validation-metrics .red{border-left-color:#d92d20}
+.validation-table-card{padding:18px}.validation-table{min-width:1560px}.validation-table th{position:sticky;top:0;background:#eef2f6;z-index:1;text-align:center}.validation-table td{text-align:center;white-space:nowrap}.validation-table td:nth-child(3),.validation-table td:nth-child(5){white-space:normal;min-width:160px}
+.validation-row.overdue{background:#fff5f4}.validation-row.urgent{background:#fff9f0}.validation-row.completed{background:#f0f9f5}
+.validation-dday,.validation-status{display:inline-block;padding:5px 8px;border-radius:7px;font-weight:800;font-size:12px}.validation-dday{background:#eaf2f8;color:#175cd3}.validation-dday.overdue,.validation-status.overdue{background:#fee4e2;color:#b42318}.validation-dday.urgent,.validation-status.urgent{background:#ffead5;color:#b54708}.validation-dday.alert,.validation-status.alert{background:#fef0c7;color:#b54708}.validation-dday.completed,.validation-status.completed{background:#dcfae6;color:#067647}.validation-dday.event,.validation-status.event{background:#eef2f6;color:#475467}
+.validation-actions{display:flex;justify-content:center;gap:5px}.small-link,.complete-open{padding:5px 8px;border-radius:6px;font-size:12px;font-weight:800;text-decoration:none}.small-link{background:#eef2f6;color:#344054}.complete-open{background:#168052;color:#fff}
+.complete-dialog{width:min(520px,94vw)}.complete-dialog form{display:grid;gap:10px}.validation-register small{color:#667085;font-weight:400}
+@media(max-width:900px){.vmp-hero{align-items:flex-start;flex-direction:column}.vmp-progress{width:100%;text-align:left}.validation-metrics{grid-template-columns:1fr 1fr}}
+@media(max-width:520px){.validation-metrics{grid-template-columns:1fr}.vmp-hero>div:first-child{align-items:flex-start}.vmp-year{width:62px;height:62px;font-size:18px}}
